@@ -30,7 +30,7 @@
     "app": "./app.tsx"
   },
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.4.47",
+    "@get-bb/plugin-sdk": "0.5.16",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
