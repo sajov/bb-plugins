@@ -9,6 +9,7 @@
 // export/import, lead-only tools, the confirmation form, the RPC contract for
 // other plugins (§3.3, §4.5–§4.8).
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { defineRpcContract, type BbPluginApi, type JsonValue } from "@get-bb/plugin-sdk";
 import { parseLimitStatus } from "./lib/capacity";
 import { createTasksRpcPort } from "./lib/dependencies";
@@ -20,6 +21,7 @@ import { openLayout } from "./lib/layout";
 import { runCli, CLI_COMMANDS, type CliContext } from "./lib/cli";
 import { CrewFileEditError } from "./lib/crewfile";
 import { AddressError } from "./lib/delivery";
+import { resolveSkillsCatalog } from "./lib/skills";
 import { ApplyRefused } from "./lib/sync";
 import { createCrewService, DeleteRefused } from "./lib/service";
 import type { Catalog, SkillsCatalog } from "./lib/spec";
@@ -542,20 +544,23 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
-  // Skills per project: read at most once a minute, same reasoning as the model catalogue.
+  // Skills per project: ~/.bb/skills, ~/.bb/skills-generated and the project's
+  // own .bb/skills; read at most once a minute, same reasoning as the model catalogue.
   const skillsCache = new Map<string, { at: number; catalog: SkillsCatalog }>();
+  async function projectPath(projectId: string): Promise<string | null> {
+    try {
+      const project = await bb.sdk.projects.get({ projectId });
+      const source = project.sources.find((entry) => entry.isDefault) ?? project.sources[0];
+      return source?.path ?? null;
+    } catch {
+      return null;
+    }
+  }
   async function skills(projectId: string): Promise<SkillsCatalog | null> {
     const cached = skillsCache.get(projectId);
     if (cached && Date.now() - cached.at < 60_000) return cached.catalog;
     try {
-      const { skills: rows } = await bb.sdk.skills.list({ projectId, environmentId: null });
-      const names = new Set<string>();
-      for (const row of rows) {
-        names.add(row.name);
-        // BB-user-scoped skills are shown to agents under the "bb-global-skills:" prefix.
-        if (row.scope === "bb-user") names.add(`bb-global-skills:${row.name}`);
-      }
-      const catalog: SkillsCatalog = { names };
+      const catalog = await resolveSkillsCatalog({ homeDir: homedir(), projectPath: await projectPath(projectId) });
       skillsCache.set(projectId, { at: Date.now(), catalog });
       return catalog;
     } catch (error) {
