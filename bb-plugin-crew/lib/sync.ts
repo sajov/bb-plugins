@@ -206,6 +206,7 @@ export async function apply(ctx: SyncContext, input: ApplyInput): Promise<ApplyO
           placement: member.placement,
           role: member.role,
           skills: member.skills,
+          graphs: member.graphs,
           integrator: member.integrator,
         },
       }),

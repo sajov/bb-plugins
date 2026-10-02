@@ -9,6 +9,7 @@
 // export/import, lead-only tools, the confirmation form, the RPC contract for
 // other plugins (§3.3, §4.5–§4.8).
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { defineRpcContract, type BbPluginApi, type JsonValue } from "@get-bb/plugin-sdk";
 import { parseLimitStatus } from "./lib/capacity";
 import { createTasksRpcPort } from "./lib/dependencies";
@@ -20,9 +21,11 @@ import { openLayout } from "./lib/layout";
 import { runCli, CLI_COMMANDS, type CliContext } from "./lib/cli";
 import { CrewFileEditError } from "./lib/crewfile";
 import { AddressError } from "./lib/delivery";
+import { createGraphsRpc } from "./lib/graphs";
+import { resolveSkillsCatalog } from "./lib/skills";
 import { ApplyRefused } from "./lib/sync";
 import { createCrewService, DeleteRefused } from "./lib/service";
-import type { Catalog } from "./lib/spec";
+import type { Catalog, SkillsCatalog } from "./lib/spec";
 import { inlineExecution, REASONING_LEVELS, SERVICE_TIERS } from "./lib/spec";
 import { createStore, MERGE_STATES, MESSAGE_STATUSES, MIGRATIONS, WORK_STATES, type MessageRow, type Store } from "./lib/store";
 import { createSdkThreadPort } from "./lib/thread-port";
@@ -108,6 +111,8 @@ const activitySchema = z.object({
   rowStatus: rowStatusSchema.nullable(),
   openWork: z.number().default(0),
   context: z.number().nullable().default(null),
+  graphRuns: z.array(z.object({ runId: z.string(), graphId: z.string(), status: z.string() })).default([]),
+  graphQuestion: z.object({ runId: z.string(), graphId: z.string(), nodeId: z.string(), question: z.string() }).nullable().default(null),
 });
 const channelSchema = z.object({ id: z.string(), author: z.string(), topic: z.string().nullable(), body: z.string(), createdAt: z.number() });
 const workSchema = z.object({
@@ -459,6 +464,8 @@ function activityDto(view: ActivityView): ActivityDto {
     rowStatus: view.rowStatus,
     openWork: view.openWork,
     context: view.context,
+    graphRuns: [...view.graphRuns],
+    graphQuestion: view.graphQuestion,
   };
 }
 
@@ -542,14 +549,42 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
+  // Skills per project: ~/.bb/skills, ~/.bb/skills-generated and the project's
+  // own .bb/skills; read at most once a minute, same reasoning as the model catalogue.
+  const skillsCache = new Map<string, { at: number; catalog: SkillsCatalog }>();
+  async function projectPath(projectId: string): Promise<string | null> {
+    try {
+      const project = await bb.sdk.projects.get({ projectId });
+      const source = project.sources.find((entry) => entry.isDefault) ?? project.sources[0];
+      return source?.path ?? null;
+    } catch {
+      return null;
+    }
+  }
+  async function skills(projectId: string): Promise<SkillsCatalog | null> {
+    const cached = skillsCache.get(projectId);
+    if (cached && Date.now() - cached.at < 60_000) return cached.catalog;
+    try {
+      const catalog = await resolveSkillsCatalog({ homeDir: homedir(), projectPath: await projectPath(projectId) });
+      skillsCache.set(projectId, { at: Date.now(), catalog });
+      return catalog;
+    } catch (error) {
+      bb.log.warn(`Skills catalogue unreadable, check skipped: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
   const publishActivity = debounced(() => bb.realtime.publish(ACTIVITY_CHANGED, { at: Date.now() }));
   const service = createCrewService({
     store,
     port,
     catalog,
+    skills,
     // `outputSchema` is required (d.ts:15920–15925); the port narrows the shapes itself.
     tasks: createTasksRpcPort((method, input) =>
       bb.sdk.plugins.callRpc({ pluginId: "tasks", method, input: input as JsonValue, outputSchema: z.unknown() })),
+    graphsRpc: createGraphsRpc((method, input) =>
+      bb.sdk.plugins.callRpc({ pluginId: "graph-studio", method, input: input as JsonValue, outputSchema: z.unknown() })),
     bbLimit: createBbLimit((text) => bb.log.warn(text)),
     onActivity: publishActivity,
     onMessages: () => {

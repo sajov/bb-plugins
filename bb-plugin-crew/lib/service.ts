@@ -10,11 +10,12 @@ import { createLifecycle } from "./lifecycle";
 import { createDelivery, type Sender } from "./delivery";
 import { createDependencies, type TasksPort } from "./dependencies";
 import { buildDirectory, formatDirectory } from "./directory";
+import { type GraphsRpc, runToCompletion, type RunOutcome, type RunToCompletionOptions } from "./graphs";
 import { createIntegration, createLocalGit, type GitBackend, type RemoteGitFactory } from "./integration";
 import { createJournal } from "./journal";
 import { createCrewModels } from "./policy";
 import { createQueue } from "./queue";
-import { serializeCrew, validateCrew, type Catalog, type Problem, type Validation } from "./spec";
+import { serializeCrew, validateCrew, type Catalog, type GraphsCatalog, type Problem, type SkillsCatalog, type Validation } from "./spec";
 import type { CrewRow, MessageFilter, MessageRow, Store } from "./store";
 import {
   apply,
@@ -64,6 +65,10 @@ export type ServiceDeps = {
   port: ThreadPort;
   /** Provider catalogue for the unknown-model warning; null skips the check. */
   catalog?: () => Promise<Catalog | null>;
+  /** Known skill names (global, project, BB global) for the unknown-skill warning; null skips the check. */
+  skills?: (projectId: string) => Promise<SkillsCatalog | null>;
+  /** Graph Studio's RPC bridge (BBP-30) for the unknown-graph warning and crew_graph_run; null disables both. */
+  graphsRpc?: GraphsRpc | null;
   readText?: (path: string) => Promise<string>;
   newId?: () => string;
   newMessageId?: (prefix: "msg" | "ch") => string;
@@ -96,6 +101,16 @@ export function createCrewService(deps: ServiceDeps) {
   };
   const readText = deps.readText ?? ((path: string) => readFile(path, "utf8"));
   const catalog = async () => (deps.catalog ? await deps.catalog().catch(() => null) : null);
+  const skillsCatalog = async (projectId: string) => (deps.skills ? await deps.skills(projectId).catch(() => null) : null);
+  const graphsCatalog = async (): Promise<GraphsCatalog | null> => {
+    if (!deps.graphsRpc) return null;
+    try {
+      const list = await deps.graphsRpc.listGraphs();
+      return { names: new Set(list.map((graph) => graph.id)) };
+    } catch {
+      return null;
+    }
+  };
   const models = createCrewModels(deps.store);
   const store = deps.store;
   const limit = () => readLimit(store, deps.bbLimit ?? null);
@@ -128,6 +143,7 @@ export function createCrewService(deps: ServiceDeps) {
     port: deps.port,
     onChange: deps.onActivity,
     now: deps.now,
+    graphsRpc: deps.graphsRpc,
     extras: (crew, member) => {
       const open = member.lead ? integration.awaitingHuman(crew.id)[0] : undefined;
       return {
@@ -199,8 +215,8 @@ export function createCrewService(deps: ServiceDeps) {
     return deps.store.listMessages({ ...filter, projectId, crewId: crew?.id ?? filter.crewId });
   }
 
-  async function validate(yaml: string, confirmFull = false): Promise<Validation> {
-    return validateCrew(yaml, { catalog: await catalog(), confirmFull });
+  async function validate(projectId: string, yaml: string, confirmFull = false): Promise<Validation> {
+    return validateCrew(yaml, { catalog: await catalog(), skills: await skillsCatalog(projectId), graphs: await graphsCatalog(), confirmFull });
   }
 
   const service = {
@@ -217,6 +233,60 @@ export function createCrewService(deps: ServiceDeps) {
     log,
     limit,
     directory: (projectId: string) => buildDirectory(store, models, projectId),
+    graphs: {
+      /**
+       * Run a graph-studio graph to completion for crew_graph_run (BBP-30),
+       * recording it in `graph_runs` as it starts and as its status changes
+       * (BBP-31), linked to the member and crew that started it. Rejects when
+       * no graphsRpc is configured.
+       */
+      run(
+        args: { graphId: string; input: string; threadId: string; projectId: string | null; crewId: string; memberId: string },
+        options: RunToCompletionOptions = {},
+      ): Promise<RunOutcome> {
+        if (!deps.graphsRpc) return Promise.reject(new Error("graph-studio is not available here."));
+        return runToCompletion(deps.graphsRpc, args, {
+          ...options,
+          onStart: (run) => {
+            store.insertGraphRun({ runId: run.id, crewId: args.crewId, memberId: args.memberId, graphId: args.graphId, status: run.status });
+            options.onStart?.(run);
+          },
+          onPoll: (run) => {
+            store.updateGraphRunStatus(run.id, run.status);
+            options.onPoll?.(run);
+          },
+        });
+      },
+      /** bb crew stop: cancel every open run of this crew via graph-studio's stopRun. Best-effort. */
+      async cancelOpen(crewId: string): Promise<number> {
+        if (!deps.graphsRpc) return 0;
+        let cancelled = 0;
+        for (const row of store.listOpenGraphRunsForCrew(crewId)) {
+          try {
+            await deps.graphsRpc.stopRun(row.runId);
+            cancelled += 1;
+          } catch {
+            // best-effort: the run may already be gone or graph-studio unreachable.
+          }
+          store.updateGraphRunStatus(row.runId, "stopped");
+        }
+        return cancelled;
+      },
+      /** bb crew delete --threads delete: every worker thread any run of this crew ever spawned. BB does not delete these on its own (they are not parented under the member's thread). */
+      async workerThreadIds(crewId: string): Promise<string[]> {
+        if (!deps.graphsRpc) return [];
+        const ids: string[] = [];
+        for (const row of store.listGraphRunsForCrew(crewId)) {
+          try {
+            const run = await deps.graphsRpc.getRun(row.runId);
+            if (run) ids.push(...run.childThreadIds);
+          } catch {
+            // best-effort: skip runs graph-studio can no longer report on.
+          }
+        }
+        return ids;
+      },
+    },
     /** One follow-up sweep (schedule: every minute). */
     async followUps() {
       const fired = await queue.followUps();
@@ -270,7 +340,7 @@ export function createCrewService(deps: ServiceDeps) {
     },
 
     async plan(projectId: string, yaml: string, options: { fresh?: string[]; confirmFull?: boolean } = {}) {
-      const validation = await validate(yaml, options.confirmFull);
+      const validation = await validate(projectId, yaml, options.confirmFull);
       const items: PlanItem[] = validation.spec ? await plan(ctx, projectId, validation, options) : [];
       const extra = await projectProblems(projectId, validation);
       const crew = validation.spec ? store.findCrew(projectId, validation.spec.name) : null;
@@ -284,7 +354,7 @@ export function createCrewService(deps: ServiceDeps) {
       yaml: string,
       options: { fresh?: string[]; confirmFull?: boolean } = {},
     ): Promise<ApplyOutcome & { validation: Validation; limit: string; remote: string[] }> {
-      const validation = await validate(yaml, options.confirmFull);
+      const validation = await validate(projectId, yaml, options.confirmFull);
       const before = validation.spec ? store.findCrew(projectId, validation.spec.name)?.status ?? null : null;
       const outcome = await apply(ctx, { projectId, yaml, validation, fresh: options.fresh });
       await recordEnvironments(outcome.crew);
@@ -299,6 +369,7 @@ export function createCrewService(deps: ServiceDeps) {
 
     async stop(crew: CrewRow, options: { archive?: boolean } = {}): Promise<StopResult[]> {
       const results = await stop(ctx, crew, options);
+      await service.graphs.cancelOpen(crew.id).catch(() => 0);
       directoryChanged(crew, options.archive ? "stopped and archived" : "stopped");
       await flush();
       return results;
@@ -392,6 +463,24 @@ export function createCrewService(deps: ServiceDeps) {
           `Crew ${crew.name} was not deleted: ${failed.length} thread(s) failed (${failed.map((result) => `${result.threadId}: ${result.error}`).join("; ")}). Nothing was removed from the database; run the delete again.`,
         );
       }
+      // BBP-31: graph run worker threads are graph-studio's own threads, not
+      // BB children of the member's thread, so `deleteTree` above never finds
+      // them — look them up and delete them explicitly.
+      if (mode === "delete") {
+        const workerThreads = await service.graphs.workerThreadIds(crew.id).catch(() => []);
+        let deletedWorkers = 0;
+        for (const threadId of workerThreads) {
+          if (done.has(threadId)) continue;
+          done.add(threadId);
+          try {
+            await deps.port.delete(threadId);
+            deletedWorkers += 1;
+          } catch (error) {
+            warnings.push(`graph run worker thread ${threadId} was not deleted: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        if (deletedWorkers > 0) warnings.push(`deleted ${deletedWorkers} graph run worker thread(s)`);
+      }
       const rows = store.deleteCrewRows(crew.id);
       directoryChanged(crew, "was deleted");
       await flush();
@@ -404,7 +493,7 @@ export function createCrewService(deps: ServiceDeps) {
 
     /** Store a crew file without applying it. Invalid files are refused. */
     async save(projectId: string, yaml: string) {
-      const validation = await validate(yaml, true);
+      const validation = await validate(projectId, yaml, true);
       if (!validation.spec || validation.problems.some((problem) => problem.level === "error" && problem.code !== "full-unconfirmed")) {
         return { crew: null, validation };
       }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import type { PluginAgentConfigurationContext } from "@get-bb/plugin-sdk";
-import { agentInstructions, configureFor, identifyMember, LEAD_ADMIN_TOOL_NAMES, registerAgentTools, TOOL_NAMES, WORK_TOOL_NAMES, type Confirm } from "../lib/agent";
+import { agentInstructions, configureFor, GRAPH_TOOL_NAME, identifyMember, LEAD_ADMIN_TOOL_NAMES, registerAgentTools, TOOL_NAMES, toolsFor, WORK_TOOL_NAMES, type Confirm } from "../lib/agent";
+import type { GraphRun, GraphsRpc } from "../lib/graphs";
 import { INSTRUCTION_LIMIT } from "../lib/spec";
 import { duoYaml, PROJECT, running, setup, trioYaml } from "./helpers";
 
@@ -17,13 +18,28 @@ function context(threadId: string, pluginMetadata: Record<string, unknown>): Plu
   } as unknown as PluginAgentConfigurationContext;
 }
 
-async function withHost(options: { confirm?: Confirm } = {}) {
-  const env = setup();
-  const crew = await running(env.service, env.port);
+async function withHost(options: { confirm?: Confirm; graphsRpc?: GraphsRpc | null; yaml?: string } = {}) {
+  const env = setup({ graphsRpc: options.graphsRpc });
+  const crew = await running(env.service, env.port, options.yaml);
   const { bb, harness } = createFakePluginHost({ pluginId: "crew", agentSkillIds: ["crew"] });
   registerAgentTools(bb, env.service, options);
   const meta = (key: string) => ({ ...env.port.threads.get(crew.threads[key]!)!.metadata });
   return { ...env, ...crew, harness, meta };
+}
+
+const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], pendingQuestion: null, ...overrides });
+
+function fakeGraphsRpc(run: GraphRun): GraphsRpc {
+  return {
+    listGraphs: async () => [{ id: "release", name: "Release" }],
+    // Mirrors graph-studio's real startRun, which throws without a parent thread (BBP-30 review fix).
+    startRun: async (args) => {
+      if (!args.threadId) throw new Error("A run needs a parent thread whose environment the workers inherit.");
+      return run;
+    },
+    getRun: async (id) => ({ ...run, id }),
+    stopRun: async (id) => ({ ...run, id, status: "stopped" }),
+  };
 }
 
 const text = (result: unknown) =>
@@ -83,6 +99,15 @@ describe("configure", () => {
     const { service, port } = setup();
     const { crew, members } = await running(service, port);
     expect(agentInstructions(service, crew, members["dev-impl"]!)).not.toContain("summary");
+  });
+
+  it("member skills become a 'Prefer these skills' hint; no skills means no hint", async () => {
+    const { service, port } = setup();
+    const { crew, members } = await running(service, port, trioYaml({ skills: ["memory"] }));
+    expect(agentInstructions(service, crew, members["dev-impl"]!)).toContain("Prefer these skills: memory");
+    const { service: service2, port: port2 } = setup();
+    const { crew: crew2, members: members2 } = await running(service2, port2);
+    expect(agentInstructions(service2, crew2, members2["dev-impl"]!)).not.toContain("Prefer these skills");
   });
 });
 
@@ -223,5 +248,119 @@ describe("lead-only tools (§4.5)", () => {
     const result = await env.harness.behavior.callAgentTool("crew_handover_note", { brief: "State: done." }, { threadId: env.threads["dev-impl"]! });
     expect(text(result)).toContain("noted (shift 1 → 2)");
     expect(env.store.activeHandover(env.members["dev-impl"]!.id)).toMatchObject({ state: "noted", brief: "State: done." });
+  });
+});
+
+describe("crew_graph_run (BBP-30)", () => {
+  const graphYaml = () =>
+    trioYaml({
+      groups: [
+        { id: "orch", members: [{ id: "lead", lead: true, role: "Plans." }] },
+        {
+          id: "dev",
+          members: [
+            { id: "impl", role: "Builds.", graphs: ["release"] },
+            { id: "review", permissions: "ask", role: "Reviews." },
+          ],
+        },
+      ],
+      links: [
+        { from: "orch-lead", to: "dev-impl", kind: "assigns_to" },
+        { from: "orch-lead", to: "dev-review", kind: "assigns_to" },
+      ],
+    });
+
+  describe("tool gating", () => {
+    it("positive: a member with graphs gets the tool", () => {
+      const names = toolsFor({ lead: false, config: { graphs: ["release"] } }, { crossCrew: "leads" });
+      expect(names).toContain(GRAPH_TOOL_NAME);
+    });
+    it("negative: a member without graphs does not", () => {
+      const names = toolsFor({ lead: false, config: {} }, { crossCrew: "leads" });
+      expect(names).not.toContain(GRAPH_TOOL_NAME);
+    });
+    it("negative: an empty graphs list does not either", () => {
+      const names = toolsFor({ lead: false, config: { graphs: [] } }, { crossCrew: "leads" });
+      expect(names).not.toContain(GRAPH_TOOL_NAME);
+    });
+  });
+
+  it("end to end: dev-impl has the tool, dev-review does not", async () => {
+    const env = await withHost({ yaml: graphYaml(), graphsRpc: fakeGraphsRpc(mkRun({ id: "run_1", status: "done" })) });
+    const member = await env.harness.behavior.resolveAgentConfiguration(context(env.threads["dev-impl"]!, env.meta("dev-impl")));
+    expect(member.tools.map((tool) => tool.name)).toContain(GRAPH_TOOL_NAME);
+    const reviewer = await env.harness.behavior.resolveAgentConfiguration(context(env.threads["dev-review"]!, env.meta("dev-review")));
+    expect(reviewer.tools.map((tool) => tool.name)).not.toContain(GRAPH_TOOL_NAME);
+  });
+
+  it("negative: a graph not in the member's list is refused without calling the RPC", async () => {
+    let called = false;
+    const rpc: GraphsRpc = {
+      listGraphs: async () => [],
+      startRun: async () => {
+        called = true;
+        throw new Error("should not run");
+      },
+      getRun: async () => null,
+      stopRun: async () => null,
+    };
+    const env = await withHost({ yaml: graphYaml(), graphsRpc: rpc });
+    const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "not-listed", input: "go" }, { threadId: env.threads["dev-impl"]! });
+    expect(isError(result)).toBe(true);
+    expect(text(result)).toContain("not one of this member's allowed graphs");
+    expect(called).toBe(false);
+  });
+
+  it("positive: a successful run returns its result, with the member context and the calling thread in the input/call", async () => {
+    let seenInput = "";
+    let seenThreadId = "";
+    const rpc: GraphsRpc = {
+      listGraphs: async () => [{ id: "release", name: "Release" }],
+      startRun: async (args) => {
+        if (!args.threadId) throw new Error("A run needs a parent thread whose environment the workers inherit.");
+        seenInput = args.input;
+        seenThreadId = args.threadId;
+        return mkRun({ id: "run_1", status: "done", state: { collected: ["ok"] } });
+      },
+      getRun: async (id) => mkRun({ id, status: "done", state: { collected: ["ok"] } }),
+      stopRun: async (id) => mkRun({ id, status: "stopped" }),
+    };
+    const env = await withHost({ yaml: graphYaml(), graphsRpc: rpc });
+    const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "release", input: "ship it" }, { threadId: env.threads["dev-impl"]! });
+    expect(isError(result)).toBe(false);
+    expect(text(result)).toContain("run_1");
+    expect(text(result)).toContain("collected");
+    expect(seenInput).toContain("Crew: trio");
+    expect(seenInput).toContain("Member: dev-impl");
+    expect(seenInput).toContain("ship it");
+    expect(seenThreadId).toBe(env.threads["dev-impl"]);
+  });
+
+  it("negative: a failed run is a tool error with the run's error", async () => {
+    const env = await withHost({
+      yaml: graphYaml(),
+      graphsRpc: fakeGraphsRpc(mkRun({ id: "run_1", status: "failed", error: "node crashed" })),
+    });
+    const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "release", input: "go" }, { threadId: env.threads["dev-impl"]! });
+    expect(isError(result)).toBe(true);
+    expect(text(result)).toContain("run_1");
+    expect(text(result)).toContain("node crashed");
+  });
+
+  it("negative: a vanished run (getRun null mid-poll) is a tool error, not a false 'done'", async () => {
+    const rpc: GraphsRpc = {
+      listGraphs: async () => [{ id: "release", name: "Release" }],
+      startRun: async (args) => {
+        if (!args.threadId) throw new Error("A run needs a parent thread whose environment the workers inherit.");
+        return mkRun({ id: "run_1", status: "running" });
+      },
+      getRun: async () => null,
+      stopRun: async () => null,
+    };
+    const env = await withHost({ yaml: graphYaml(), graphsRpc: rpc });
+    const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "release", input: "go" }, { threadId: env.threads["dev-impl"]! });
+    expect(isError(result)).toBe(true);
+    expect(text(result)).toContain("run_1");
+    expect(text(result)).toMatch(/vanished/);
   });
 });

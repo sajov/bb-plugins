@@ -312,7 +312,7 @@ describe("Needs you with context", () => {
           members: [
             {
               key: "orch-lead", address: "orch-lead@trio", lead: true, crewName: "trio", threadId: "th_orch-lead", status: "idle", thread: "present",
-              activity: "needs-you", needsYou: ["loop"], question: null, held: 0, diagnoses: [], rowStatus: null, openWork: 0, context: null,
+              activity: "needs-you", needsYou: ["loop"], question: null, held: 0, diagnoses: [], rowStatus: null, openWork: 0, context: null, graphRuns: [],
             },
           ],
         }),

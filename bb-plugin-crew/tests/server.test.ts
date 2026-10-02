@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
-import { INTEGRATOR_TOOL_NAMES, LEAD_ADMIN_TOOL_NAMES, LEAD_TOOL_NAMES, TOOL_NAMES, WORK_TOOL_NAMES } from "../lib/agent";
+import { GRAPH_TOOL_NAME, INTEGRATOR_TOOL_NAMES, LEAD_ADMIN_TOOL_NAMES, LEAD_TOOL_NAMES, TOOL_NAMES, WORK_TOOL_NAMES } from "../lib/agent";
 import plugin from "../server";
 
 describe("server wiring", () => {
@@ -64,7 +64,9 @@ describe("server wiring (E2)", () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "crew", agentSkillIds: ["crew"] });
     await plugin(bb);
     const tools = harness.registrations.agentTools.map((tool) => tool.name).sort();
-    expect(tools).toEqual([...TOOL_NAMES, ...WORK_TOOL_NAMES, ...LEAD_TOOL_NAMES, ...LEAD_ADMIN_TOOL_NAMES, "crew_directory", ...INTEGRATOR_TOOL_NAMES].sort());
+    expect(tools).toEqual(
+      [...TOOL_NAMES, ...WORK_TOOL_NAMES, ...LEAD_TOOL_NAMES, ...LEAD_ADMIN_TOOL_NAMES, "crew_directory", ...INTEGRATOR_TOOL_NAMES, GRAPH_TOOL_NAME].sort(),
+    );
     expect(harness.registrations.agentConfigurationProvider).not.toBeNull();
     expect(harness.registrations.services.map((service) => service.name).sort()).toEqual(["activity", "delivery"]);
     // E3: follow-ups and the dependency poll run every minute.

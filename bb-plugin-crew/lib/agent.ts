@@ -35,6 +35,13 @@ export const LEAD_TOOL_NAMES = ["crew_deliver"] as const;
 /** §4.5: tools that change the team. Other members do not get them at all, and the tools re-check the lead at call time. */
 export const LEAD_ADMIN_TOOL_NAMES = ["crew_add_member", "crew_remove_member", "crew_reset", "crew_status"] as const;
 export const INTEGRATOR_TOOL_NAMES = ["crew_merges", "crew_merge"] as const;
+/** BBP-30: only for members whose crew.yaml lists at least one graph. */
+export const GRAPH_TOOL_NAME = "crew_graph_run";
+
+/** The `graphs:` names crew.yaml gave this member (BBP-30), or none. */
+export function memberGraphs(config: Record<string, unknown>): string[] {
+  return Array.isArray(config.graphs) ? config.graphs.filter((entry): entry is string => typeof entry === "string") : [];
+}
 
 /** Tools for one member: role decides; the tools re-check at call time, since a live session keeps its set. */
 export function toolsFor(member: Pick<MemberRow, "lead" | "config">, policy: Pick<CrewPolicy, "crossCrew">): string[] {
@@ -44,6 +51,7 @@ export function toolsFor(member: Pick<MemberRow, "lead" | "config">, policy: Pic
     ...(member.lead ? [...LEAD_TOOL_NAMES, ...LEAD_ADMIN_TOOL_NAMES] : []),
     ...(directoryRefusal(member, policy.crossCrew) === null ? ["crew_directory"] : []),
     ...(isIntegrator(member.config) ? INTEGRATOR_TOOL_NAMES : []),
+    ...(memberGraphs(member.config).length > 0 ? [GRAPH_TOOL_NAME] : []),
   ];
 }
 
@@ -93,7 +101,8 @@ export function agentInstructions(service: CrewService, crew: CrewRow, member: M
     .join("\n");
   const rules = `${messagingRules({ address: member.address, lead: member.lead }, model.policy)}\n\n${workRules(member.lead, isIntegrator(member.config))}`;
   const inherited = (resolvedMember?.instructions ?? []).join("\n\n");
-  const room = INSTRUCTION_LIMIT - head.length - rules.length - 80;
+  const skillsHint = (resolvedMember?.skills ?? []).length > 0 ? `Prefer these skills: ${resolvedMember!.skills.join(", ")}` : "";
+  const room = INSTRUCTION_LIMIT - head.length - rules.length - skillsHint.length - 80;
   let summary = "";
   if (inherited && room > 40) {
     summary =
@@ -101,7 +110,7 @@ export function agentInstructions(service: CrewService, crew: CrewRow, member: M
         ? `Instructions:\n${inherited}`
         : `Instructions (summary, full text via crew_whoami):\n${inherited.slice(0, room - 60).trimEnd()}…`;
   }
-  const text = [head, summary, rules].filter(Boolean).join("\n\n");
+  const text = [head, summary, skillsHint, rules].filter(Boolean).join("\n\n");
   return text.length <= INSTRUCTION_LIMIT ? text : `${text.slice(0, INSTRUCTION_LIMIT - 1)}…`;
 }
 
@@ -487,6 +496,38 @@ export function registerAgentTools(bb: BbPluginApi, service: CrewService, option
       withSelf(async (self) => {
         const row = service.lifecycle.noteBrief(self.member, params.brief);
         return `Handover ${row.id} noted (shift ${row.oldShift} → ${row.oldShift + 1}). Finish this turn; the new shift starts when your thread is idle.`;
+      })(params, ctx),
+  });
+
+  bb.agents.registerTool({
+    name: GRAPH_TOOL_NAME,
+    description: "Run one of this member's allowed graphs (crew.yaml's graphs:) to completion and return its result. Blocks until the run finishes, fails, is stopped, or times out.",
+    parameters: z.object({ graph: z.string().min(1).max(64), input: z.string().min(1).max(8000) }),
+    presentation: { label: { pending: "Running graph", completed: "Graph run finished" }, icon: { glyph: "Workflow" } },
+    execute: (params, ctx) =>
+      withSelf(async (self) => {
+        const allowed = memberGraphs(self.member.config);
+        if (!allowed.includes(params.graph)) {
+          return failure(`"${params.graph}" is not one of this member's allowed graphs${allowed.length ? `: ${allowed.join(", ")}` : " (none are configured in crew.yaml)"}.`);
+        }
+        const role = self.member.config.role ? ` (${String(self.member.config.role)})` : "";
+        const context = `Crew: ${self.crew.name}\nMember: ${self.member.key}${role}\n\n${params.input}`;
+        try {
+          const { run, timedOut } = await service.graphs.run({
+            graphId: params.graph,
+            input: context,
+            threadId: ctx.threadId,
+            projectId: self.crew.projectId,
+            crewId: self.crew.id,
+            memberId: self.member.id,
+          });
+          if (timedOut) return failure(`Graph run ${run.id} timed out before it finished (still "${run.status}"); check it in Graph Studio.`);
+          if (run.status === "failed") return failure(`Graph run ${run.id} failed: ${run.error ?? "unknown error"}`);
+          if (run.status === "stopped") return failure(`Graph run ${run.id} was stopped.`);
+          return bounded(`Graph run ${run.id} done.\n${JSON.stringify(run.state)}`);
+        } catch (error) {
+          return failure(`Could not run graph "${params.graph}": ${error instanceof Error ? error.message : String(error)}`);
+        }
       })(params, ctx),
   });
 

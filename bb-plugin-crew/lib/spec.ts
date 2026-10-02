@@ -60,6 +60,8 @@ const memberSchema = z
     permissions: permissionSchema.optional(),
     environment: environmentSchema.optional(),
     skills: z.array(z.string().min(1)).default([]),
+    /** Graphs this member may run with crew_graph_run (BBP-30); names are graph-studio graph ids. */
+    graphs: z.array(z.string().min(1)).default([]),
     /** Stand-in for the lead towards other crews (§3.9.4); used from E3 on. */
     deputy: z.string().optional(),
     /** Merges delivered crew branches into main on green checks (§3.9.1). An explicit grant, never read from the role text. */
@@ -73,6 +75,8 @@ const groupSchema = z
   .object({
     id: idSchema,
     instructions: z.string().optional(),
+    skills: z.array(z.string().min(1)).default([]),
+    graphs: z.array(z.string().min(1)).default([]),
     provider: z.string().min(1).optional(),
     model: z.string().min(1).optional(),
     permissions: permissionSchema.optional(),
@@ -95,6 +99,8 @@ export const crewSpecSchema = z
     name: idSchema,
     summary: z.string().default(""),
     instructions: z.string().optional(),
+    skills: z.array(z.string().min(1)).default([]),
+    graphs: z.array(z.string().min(1)).default([]),
     messaging: z.enum(["open", "links"]).default("open"),
     permissions: permissionSchema.default("accept-edits"),
     environment: environmentSchema.default({ type: "auto" }),
@@ -192,6 +198,7 @@ export type ResolvedMember = {
   /** Crew → group → member instructions, most general first. */
   instructions: string[];
   skills: string[];
+  graphs: string[];
   deputy: string | null;
   integrator: boolean;
   kickoff: string | null;
@@ -209,8 +216,22 @@ export type Catalog = {
   providers: Map<string, Set<string>>;
 };
 
+/** Skill names known here (global, project and BB global skills); absent means "not checked". */
+export type SkillsCatalog = {
+  names: ReadonlySet<string>;
+};
+
+/** Graph ids graph-studio actually has; absent means "not checked". */
+export type GraphsCatalog = {
+  names: ReadonlySet<string>;
+};
+
 export type ValidateOptions = {
   catalog?: Catalog | null;
+  /** Known skill names for the unknown-skill warning; null skips the check. */
+  skills?: SkillsCatalog | null;
+  /** Known graph ids for the unknown-graph warning; null skips the check. */
+  graphs?: GraphsCatalog | null;
   /** `--confirm-full`: the human has seen that a member runs with `full`. */
   confirmFull?: boolean;
 };
@@ -343,7 +364,9 @@ export function validateCrew(input: string | unknown, options: ValidateOptions =
       instructions: [spec.instructions, group.instructions, member.instructions].filter(
         (text): text is string => typeof text === "string" && text.trim() !== "",
       ),
-      skills: member.skills,
+      // Crew → group → member, most general first, each name kept once.
+      skills: [...new Set([...spec.skills, ...group.skills, ...member.skills])],
+      graphs: [...new Set([...spec.graphs, ...group.graphs, ...member.graphs])],
       deputy: member.deputy ?? null,
       integrator: member.integrator === true,
       kickoff: member.kickoff ?? spec.kickoff ?? null,
@@ -411,6 +434,28 @@ export function validateCrew(input: string | unknown, options: ValidateOptions =
         warn("unknown-provider", `${member.key}: provider "${member.provider}" is not offered here`);
       } else if (member.model !== null && !models.has(member.model)) {
         warn("unknown-model", `${member.key}: model "${member.model}" is not in the catalogue of "${member.provider}"`);
+      }
+    }
+  }
+
+  const skillsCatalog = options.skills;
+  if (skillsCatalog) {
+    for (const member of members) {
+      for (const name of member.skills) {
+        if (!skillsCatalog.names.has(name)) {
+          warn("unknown-skill", `${member.key}: skill "${name}" is not known here`);
+        }
+      }
+    }
+  }
+
+  const graphsCatalog = options.graphs;
+  if (graphsCatalog) {
+    for (const member of members) {
+      for (const name of member.graphs) {
+        if (!graphsCatalog.names.has(name)) {
+          warn("unknown-graph", `${member.key}: graph "${name}" is not known to graph-studio`);
+        }
       }
     }
   }

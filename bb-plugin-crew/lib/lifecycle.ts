@@ -46,7 +46,7 @@ export type LifecycleDeps = {
   /** The service's apply (it also records environments, directory notes, drains). */
   apply: (projectId: string, yaml: string, options?: { confirmFull?: boolean }) => Promise<ApplyOutcome & { validation: Validation; limit: string }>;
   plan: (projectId: string, yaml: string) => Promise<{ validation: Validation; items: PlanItem[] }>;
-  validate: (yaml: string, confirmFull?: boolean) => Promise<Validation>;
+  validate: (projectId: string, yaml: string, confirmFull?: boolean) => Promise<Validation>;
   newId?: (prefix: "snap" | "ho") => string;
 };
 
@@ -408,8 +408,8 @@ export function createLifecycle(deps: LifecycleDeps) {
     return file.yaml;
   }
 
-  async function checked(yaml: string, confirmFull: boolean): Promise<void> {
-    const validation = await deps.validate(yaml, confirmFull);
+  async function checked(projectId: string, yaml: string, confirmFull: boolean): Promise<void> {
+    const validation = await deps.validate(projectId, yaml, confirmFull);
     if (hasErrors(validation.problems)) {
       throw new AddressError(`The changed crew file has errors:\n${validation.problems.filter((p) => p.level === "error").map((p) => `- ${p.message}`).join("\n")}`);
     }
@@ -417,20 +417,20 @@ export function createLifecycle(deps: LifecycleDeps) {
 
   async function addMember(crew: CrewRow, member: NewMember, options: { confirmFull?: boolean } = {}) {
     const yaml = addMemberToFile(storedYaml(crew), member);
-    await checked(yaml, options.confirmFull ?? false);
+    await checked(crew.projectId, yaml, options.confirmFull ?? false);
     return deps.apply(crew.projectId, yaml, { confirmFull: options.confirmFull });
   }
 
   async function removeMember(crew: CrewRow, key: string) {
     const member = requireMember(crew, key);
     const yaml = removeMemberFromFile(storedYaml(crew), member.key);
-    await checked(yaml, true);
+    await checked(crew.projectId, yaml, true);
     return deps.apply(crew.projectId, yaml, { confirmFull: true });
   }
 
   /** Store an imported crew file (no threads touched) and return what apply would do. */
   async function importFile(projectId: string, yaml: string) {
-    const validation = await deps.validate(yaml, true);
+    const validation = await deps.validate(projectId, yaml, true);
     if (!validation.spec || validation.problems.some((p) => p.level === "error" && p.code !== "full-unconfirmed")) {
       return { crew: null, changed: false, validation, items: [] as PlanItem[] };
     }

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { createFakeTasks } from "../lib/dependencies";
+import type { GraphsRpc } from "../lib/graphs";
 import { createFakeGit } from "../lib/integration";
 import { createCrewService } from "../lib/service";
 import { inlineExecution, serializeCrew, type CrewSpecInput } from "../lib/spec";
@@ -8,7 +9,7 @@ import { createFakeThreadPort } from "../lib/thread-port";
 
 export const PROJECT = "proj_1";
 
-export function setup(options: { bbLimit?: number | null } = {}) {
+export function setup(options: { bbLimit?: number | null; graphsRpc?: GraphsRpc | null } = {}) {
   const db = new Database(":memory:");
   migrateInPlace(db);
   // A realistic epoch, so rendered timestamps look like dates. The store ticks
@@ -26,6 +27,7 @@ export function setup(options: { bbLimit?: number | null } = {}) {
     port,
     git,
     tasks,
+    graphsRpc: options.graphsRpc ?? null,
     bbLimit: async () => options.bbLimit ?? null,
     newId: () => `op_${++ids}`,
     newMessageId: (prefix) => `${prefix}_${++messageIds}`,
