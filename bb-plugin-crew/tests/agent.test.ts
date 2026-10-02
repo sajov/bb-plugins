@@ -330,6 +330,20 @@ describe("crew_graph_run (BBP-30)", () => {
     });
     const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "release", input: "go" }, { threadId: env.threads["dev-impl"]! });
     expect(isError(result)).toBe(true);
+    expect(text(result)).toContain("run_1");
     expect(text(result)).toContain("node crashed");
+  });
+
+  it("negative: a vanished run (getRun null mid-poll) is a tool error, not a false 'done'", async () => {
+    const rpc: GraphsRpc = {
+      listGraphs: async () => [{ id: "release", name: "Release" }],
+      startRun: async () => ({ id: "run_1", status: "running", error: null, state: null }),
+      getRun: async () => null,
+    };
+    const env = await withHost({ yaml: graphYaml(), graphsRpc: rpc });
+    const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "release", input: "go" }, { threadId: env.threads["dev-impl"]! });
+    expect(isError(result)).toBe(true);
+    expect(text(result)).toContain("run_1");
+    expect(text(result)).toMatch(/vanished/);
   });
 });

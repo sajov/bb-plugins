@@ -54,7 +54,7 @@ describe("runToCompletion", () => {
     expect(timedOut).toBe(false);
   });
 
-  it("negative: a run stuck running past the timeout is reported as timed out", async () => {
+  it("negative: a run stuck running past the timeout is reported as timed out, run id intact", async () => {
     const rpc = fakeRpc([{ id: "run_1", status: "running", error: null, state: null }]);
     const clock = fakeClock();
     const { run, timedOut } = await runToCompletion(
@@ -64,5 +64,19 @@ describe("runToCompletion", () => {
     );
     expect(timedOut).toBe(true);
     expect(run.status).toBe("running");
+    expect(run.id).toBe("run_1");
+  });
+
+  it("negative: getRun returning null mid-poll is a failure, not a silent success (the run vanished)", async () => {
+    const rpc: Pick<GraphsRpc, "startRun" | "getRun"> = {
+      startRun: async () => ({ id: "run_1", status: "running", error: null, state: null }),
+      getRun: async () => null,
+    };
+    const clock = fakeClock();
+    const { run, timedOut } = await runToCompletion(rpc, { graphId: "g", input: "hi", projectId: null }, { wait: clock.wait, now: clock.now });
+    expect(timedOut).toBe(false);
+    expect(run.status).toBe("failed");
+    expect(run.id).toBe("run_1");
+    expect(run.error).toMatch(/vanished/);
   });
 });

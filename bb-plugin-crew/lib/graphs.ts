@@ -72,7 +72,8 @@ export async function runToCompletion(
     if (now() - started >= timeoutMs) return { run, timedOut: true };
     await wait(pollMs);
     const polled = await rpc.getRun(run.id);
-    if (!polled) return { run, timedOut: false };
+    // getRun returning null mid-poll means the run is gone, not that it succeeded.
+    if (!polled) return { run: { ...run, status: "failed", error: "The run vanished (graph-studio no longer has it)." }, timedOut: false };
     run = polled;
   }
   return { run, timedOut: false };
