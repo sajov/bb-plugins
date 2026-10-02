@@ -4,8 +4,7 @@ import { fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { formatPlan } from "../lib/format";
 import { validateCrew } from "../lib/spec";
-import { HANDLE_OFFSET, layoutTopology } from "../lib/topology";
-import { toEdges } from "../components/crew-topology";
+import { buildCrewCanvas } from "../components/crew-topology";
 import type { ActivityDto, MemberDto } from "../server";
 import { PROJECT, running, setup, trioYaml } from "./helpers";
 
@@ -181,22 +180,18 @@ describe("confirmation form", () => {
 });
 
 describe("topology", () => {
-  it("layout: groups as areas side by side (lead's first), members inside, only known links", () => {
-    const layout = layoutTopology(
-      [
-        { key: "dev-impl", groupId: "dev", lead: false },
-        { key: "orch-lead", groupId: "orch", lead: true },
-        { key: "dev-review", groupId: "dev", lead: false },
-      ],
-      [
-        { from: "orch-lead", to: "dev-impl", kind: "assigns_to" },
-        { from: "orch-lead", to: "ghost", kind: "assigns_to" },
-      ],
-    );
-    expect(layout.groups.map((g) => g.id)).toEqual(["orch", "dev"]);
-    expect(layout.groups[1]!.x).toBeGreaterThan(layout.groups[0]!.x);
-    expect(layout.members.filter((m) => m.groupId === "dev").map((m) => m.y)).toEqual([30, 102]);
-    expect(layout.links.map((l) => l.id)).toEqual(["orch-lead->dev-impl:assigns_to"]);
+  it("layout: the lead on top, then one layer per group (the lead's own first), only known links", () => {
+    const members = [member({ key: "dev-impl", groupId: "dev" }), member({ key: "orch-lead", groupId: "orch", lead: true }), member({ key: "dev-review", groupId: "dev" })];
+    const canvas = buildCrewCanvas(members, [
+      { from: "orch-lead", to: "dev-impl", kind: "assigns_to" },
+      { from: "orch-lead", to: "ghost", kind: "assigns_to" },
+    ], [], new Set(), null);
+    const at = new Map(canvas.boxes.map((box) => [box.id, box]));
+    expect(at.get("orch-lead")!.layer).toBe(0);
+    expect([at.get("dev-impl")!.layer, at.get("dev-review")!.layer]).toEqual([1, 1]);
+    expect(at.get("dev-impl")!.y).toBeGreaterThan(at.get("orch-lead")!.y);
+    expect(at.get("dev-impl")!.y).toBe(at.get("dev-review")!.y);
+    expect(canvas.edges.map((e) => e.id)).toEqual(["orch-lead->dev-impl:assigns_to"]);
   });
 
   it("the tab draws members coloured by activity and a card with the Needs-you question and answer button", async () => {
@@ -244,84 +239,68 @@ describe("topology", () => {
 
 describe("topology edges (research template)", () => {
   const research = () =>
-    layoutTopology(
-      [
-        { key: "orch-lead", groupId: "orch", lead: true },
-        { key: "res-one", groupId: "res", lead: false },
-        { key: "res-two", groupId: "res", lead: false },
-      ],
+    buildCrewCanvas(
+      [member({ key: "orch-lead", groupId: "orch", lead: true }), member({ key: "res-one", groupId: "res" }), member({ key: "res-two", groupId: "res" })],
       [
         { from: "orch-lead", to: "res-one", kind: "assigns_to" },
         { from: "orch-lead", to: "res-two", kind: "assigns_to" },
         { from: "res-one", to: "orch-lead", kind: "escalates_to" },
         { from: "res-two", to: "orch-lead", kind: "escalates_to" },
       ],
+      [],
+      new Set(),
+      null,
     );
 
-  it("forward links leave right and enter left; return links leave left and enter right, between the cards", () => {
-    const byId = new Map(research().links.map((link) => [link.id, link]));
-    expect(byId.get("orch-lead->res-one:assigns_to")).toMatchObject({ sourceHandle: "out-right", targetHandle: "in-left", reverse: false });
-    expect(byId.get("res-one->orch-lead:escalates_to")).toMatchObject({ sourceHandle: "out-left", targetHandle: "in-right", reverse: true });
-    expect(byId.get("res-two->orch-lead:escalates_to")).toMatchObject({ sourceHandle: "out-left", targetHandle: "in-right", reverse: true });
+  it("links down run as Graph Studio's forward edge; links back up bow out into the right lane", () => {
+    const canvas = research();
+    const box = new Map(canvas.boxes.map((b) => [b.id, b]));
+    const byId = new Map(canvas.edges.map((edge) => [edge.id, edge]));
+    const lead = box.get("orch-lead")!;
+    const one = box.get("res-one")!;
+    // down: leaves the lead's bottom edge
+    expect(byId.get("orch-lead->res-one:assigns_to")!.data!.path).toContain(` ${lead.y + lead.height} C `);
+    // back up: leaves res-one's right side
+    expect(byId.get("res-one->orch-lead:escalates_to")!.data!.path.startsWith(`M ${one.x + one.width} `)).toBe(true);
+    expect(byId.get("res-one->orch-lead:escalates_to")!.ariaLabel).toBe("res-one escalates orch-lead");
   });
 
-  it("negative: a pair A→B / B→A never shares a handle, so the two paths cannot overlap", () => {
-    const links = research().links;
-    const there = links.find((link) => link.from === "orch-lead" && link.to === "res-one")!;
-    const back = links.find((link) => link.from === "res-one" && link.to === "orch-lead")!;
-    // Both touch res-one's left side, but at different offsets: forward at one, return at the other.
-    expect([there.targetHandle, back.sourceHandle]).toEqual(["in-left", "out-left"]);
-    expect([there.reverse, back.reverse]).toEqual([false, true]);
-    expect(HANDLE_OFFSET.forward).not.toBe(HANDLE_OFFSET.reverse);
-    expect(new Set([there.sourceHandle, there.targetHandle, back.sourceHandle, back.targetHandle]).size).toBe(4);
-  });
-
-  it("inside one group: down leaves bottom and enters top, up the other way", () => {
-    const layout = layoutTopology(
-      [
-        { key: "res-one", groupId: "res", lead: false },
-        { key: "res-two", groupId: "res", lead: false },
-      ],
-      [
-        { from: "res-one", to: "res-two", kind: "works_with" },
-        { from: "res-two", to: "res-one", kind: "works_with" },
-      ],
-    );
-    expect(layout.links.map((link) => [link.sourceHandle, link.targetHandle])).toEqual([
-      ["out-bottom", "in-top"],
-      ["out-top", "in-bottom"],
-    ]);
-  });
-
-  it("one edge per link with its own handles and no text label (the legend names the kinds)", () => {
-    const edges = toEdges(research().links);
-    expect(edges).toHaveLength(4);
-    expect(new Set(edges.map((edge) => edge.id)).size).toBe(4);
-    for (const edge of edges) expect(edge.label).toBeUndefined();
-    expect(edges.find((edge) => edge.id === "res-one->orch-lead:escalates_to")).toMatchObject({
-      source: "res-one",
-      target: "orch-lead",
-      sourceHandle: "out-left",
-      targetHandle: "in-right",
-      ariaLabel: "res-one escalates orch-lead",
-    });
+  it("negative: a pair A→B / B→A never shares a path", () => {
+    const edges = research().edges;
+    const there = edges.find((edge) => edge.id === "orch-lead->res-one:assigns_to")!;
+    const back = edges.find((edge) => edge.id === "res-one->orch-lead:escalates_to")!;
+    expect(there.data!.path).not.toBe(back.data!.path);
+    expect(new Set(edges.map((edge) => edge.data!.path)).size).toBe(edges.length);
   });
 
   it("negative: links to unknown members produce no edge", () => {
-    const layout = layoutTopology([{ key: "orch-lead", groupId: "orch", lead: true }], [{ from: "ghost", to: "orch-lead", kind: "escalates_to" }]);
-    expect(toEdges(layout.links)).toEqual([]);
+    const canvas = buildCrewCanvas([member({ key: "orch-lead", groupId: "orch", lead: true })], [{ from: "ghost", to: "orch-lead", kind: "escalates_to" }], [], new Set(), null);
+    expect(canvas.edges).toEqual([]);
+  });
+
+  it("a narrow panel wraps a wide group onto more rows instead of shrinking it", () => {
+    const members = [member({ key: "orch-lead", groupId: "orch", lead: true }), ...["a", "b", "c", "d"].map((k) => member({ key: `dev-${k}`, groupId: "dev" }))];
+    const wide = buildCrewCanvas(members, [], [], new Set(), null);
+    const narrow = buildCrewCanvas(members, [], [], new Set(), null, 2);
+    expect(narrow.width).toBeLessThan(wide.width);
+    expect(narrow.height).toBeGreaterThan(wide.height);
+    expect(new Set(narrow.boxes.filter((b) => b.layer === 1).map((b) => b.y)).size).toBe(2);
   });
 });
 
 describe("topology canvas surfaces", () => {
-  it("groups render as one custom area with the title, not React Flow's framed built-in group", async () => {
+  it("cards name their group in Graph Studio's kind line; no group boxes are drawn", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend({}) });
     await openCrew(slot, "Topology");
-    await waitFor(() => expect(slot.container.querySelector('[data-group-area="orch"]')).not.toBeNull());
-    expect(slot.container.querySelector('[data-group-area="orch"]')!.textContent).toBe("group orch");
-    expect(slot.container.querySelector(".react-flow__node-group")).toBeNull();
-    expect(slot.container.querySelector(".react-flow__node-crewGroup")).not.toBeNull();
+    const node = await waitFor(() => {
+      const found = slot.container.querySelector('[data-member-node="dev-impl"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(node.textContent).toContain("dev");
+    expect(slot.container.querySelector("[data-group-area]")).toBeNull();
+    expect(slot.container.querySelector(".react-flow__node-member")).not.toBeNull();
     slot.lifecycle.unmount();
   });
 

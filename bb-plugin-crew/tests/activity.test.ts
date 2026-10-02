@@ -121,3 +121,15 @@ describe("activity tracker", () => {
     expect(view.diagnoses).toContain("On hold");
   });
 });
+
+describe("liveViews", () => {
+  const v = (memberRow: string, threadId: string | null = "th") => ({ memberRow, threadId });
+  it("keeps the views of members that exist and have a thread", async () => {
+    const { liveViews } = await import("../lib/activity");
+    expect(liveViews([v("m1"), v("m2")], new Set(["m1", "m2"])).map((x) => x.memberRow)).toEqual(["m1", "m2"]);
+  });
+  it("negative: a removed member's cached view and a view without thread are dropped", async () => {
+    const { liveViews } = await import("../lib/activity");
+    expect(liveViews([v("gone"), v("m1", null), v("m2")], new Set(["m1", "m2"])).map((x) => x.memberRow)).toEqual(["m2"]);
+  });
+});

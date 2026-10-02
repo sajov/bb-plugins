@@ -25,13 +25,16 @@
 // still apply them at once on realtime changes. Rows fetched before the
 // setter exists are kept and applied when it arrives.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { definePluginApp, experimental_ProviderModelPicker as ProviderModelPicker, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, experimental_ProviderModelPicker as ProviderModelPicker, useBbContext, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginComposerThreadRowStatus } from "@get-bb/plugin-sdk/app";
 import type { ActivityDto, ChannelDto, CrewDto, MemberDto, MergeDto, MessageDto, OverviewDto, rpcContract, WorkDto } from "./server";
 import { CrewFileEditor } from "./components/crew-file-editor";
 import { CREW_ICON, CrewTeam } from "./components/crew-icon";
 import { ConfirmInteraction, CrewDirectiveCard, MemberBadge } from "./components/crew-surfaces";
-import { MemberCard, TopologyCanvas, type MemberAction } from "./components/crew-topology";
+import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
+import { CommsStrip, MessageCard } from "./components/crew-comms";
+import { CrewBoardCanvas, type BoardLine } from "./components/crew-board";
+import { flowOf, messageFlows, RECENT_MS, recentFlowIds, timeline } from "./lib/comms";
 import { activityLabel } from "./lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -95,14 +98,14 @@ export async function fetchRowStatuses(pluginId: string, fetcher: typeof fetch =
 }
 
 /** Row statuses and the Needs-you count, kept current over realtime. */
-function useNeedsYou(): number {
+function useNeedsYou(): { count: number; byProject: Record<string, number> } {
   const rpc = useRpc<typeof rpcContract>();
-  const [count, setCount] = useState(0);
+  const [state, setState] = useState<{ count: number; byProject: Record<string, number> }>({ count: 0, byProject: {} });
   const refetch = useCallback(() => {
     rpc.call("rowStatuses", {}).then(
       (result) => {
         applyRowStatuses(result.rows);
-        setCount(result.needsYou);
+        setState({ count: result.needsYou, byProject: result.byProject ?? {} });
       },
       () => undefined,
     );
@@ -110,15 +113,16 @@ function useNeedsYou(): number {
   useEffect(refetch, [refetch]);
   useRealtime(ACTIVITY_CHANNEL, refetch);
   useRealtime(CREWS_CHANNEL, refetch);
-  return count;
+  return state;
 }
 
-export function NeedsYouBadge({ count, onClick }: { count: number; onClick?: () => void }) {
+export function NeedsYouBadge({ count, onClick, title }: { count: number; onClick?: () => void; title?: string }) {
   if (count === 0) return null;
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className="flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-0.5 text-xs text-red-400"
     >
       <span className="inline-block size-2 rounded-full bg-red-400" />
@@ -129,7 +133,7 @@ export function NeedsYouBadge({ count, onClick }: { count: number; onClick?: () 
 
 function SidebarAccessory() {
   useRpcBridge();
-  const count = useNeedsYou();
+  const { count } = useNeedsYou();
   if (count === 0) return null;
   return (
     <span aria-label={`${count} Needs you`} className="rounded-full bg-red-500/15 px-1.5 text-[10px] font-medium leading-4 text-red-400">
@@ -140,7 +144,9 @@ function SidebarAccessory() {
 
 function HeaderContent() {
   useRpcBridge();
-  return <NeedsYouBadge count={useNeedsYou()} />;
+  // Every project's crews: the panel below shows one project, so the badge says where the rest are.
+  const { count } = useNeedsYou();
+  return <NeedsYouBadge count={count} title="Members that need you, across all projects — the project switch shows them per project" />;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +193,9 @@ export function MembersTable({
   // Needs you is a state of the member, shown where the member already is: on top, marked.
   rows.sort((a, b) => Number((b.activity?.needsYou.length ?? 0) > 0) - Number((a.activity?.needsYou.length ?? 0) > 0));
   return (
-    <table className="w-full text-sm">
+    // Scrolls inside its own box on a phone instead of pushing the whole panel sideways.
+    <div className="-mx-1 overflow-x-auto px-1">
+    <table className="w-full min-w-[520px] text-sm">
       <thead className="text-left text-xs uppercase tracking-wide text-muted-foreground">
         <tr>
           <th className="py-2 pr-3 font-medium">Address</th>
@@ -215,7 +223,7 @@ export function MembersTable({
               <td className="py-2 pr-3 align-top">
                 {view ? (
                   <div className="flex flex-col gap-1">
-                    <span className="flex items-center gap-1.5">
+                    <span className="flex flex-wrap items-center gap-x-1.5">
                       <Dot tone={ACTIVITY_TONE[view.activity] ?? "bg-muted-foreground"} />
                       <span data-activity-label>{activityLabel({ ...view, needsYou: [] }, view.activity)}</span>
                       {needs ? <span className="text-xs text-red-400">Needs you: {view.needsYou.join(", ")}</span> : null}
@@ -243,6 +251,7 @@ export function MembersTable({
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 
@@ -262,6 +271,12 @@ const STATUS_TEXT: Record<string, string> = {
 };
 const HOLDABLE = new Set(["on_hold", "stopped_loop", "throttled"]);
 
+/** A body as a one-paragraph preview: whitespace collapsed, cut long before two lines would end. */
+export function preview(body: string, max = 240): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
 function time(ms: number) {
   return new Date(ms).toISOString().slice(11, 16);
 }
@@ -272,17 +287,22 @@ export function MessageItem({
   onReply,
   onAction,
   onStopChain,
+  onSelect,
+  selected = false,
 }: {
   message: MessageDto;
   onOpenChain?: (chainId: string) => void;
   onReply?: (address: string, replyTo: string) => void;
   onAction?: (id: string, action: "release" | "discard") => void;
   onStopChain?: (chainId: string) => void;
+  /** Picks the message on the canvas instead of opening its chain. */
+  onSelect?: (id: string) => void;
+  selected?: boolean;
 }) {
   const replyTo = message.fromAddress === "human" || message.fromAddress === "system" ? null : message.fromAddress;
   return (
-    <li className="border-b border-border py-2 last:border-b-0">
-      <button type="button" className="w-full text-left" onClick={() => onOpenChain?.(message.chainId)}>
+    <li data-message={message.id} aria-current={selected ? "true" : undefined} className={cn("border-b border-border py-2 last:border-b-0", selected && "-mx-2 rounded-md bg-primary/10 px-2")}>
+      <button type="button" className="w-full text-left" onClick={() => (onSelect ? onSelect(message.id) : onOpenChain?.(message.chainId))}>
         <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
           <span className="font-mono">{message.fromAddress}</span>→<span className="font-mono">{message.toAddress}</span>
           <span className={cn("font-medium", STATUS_TEXT[message.status])}>{message.status}</span>
@@ -293,7 +313,8 @@ export function MessageItem({
           <span className="ml-auto">{time(message.createdAt)}</span>
         </div>
         <div className="mt-0.5 text-sm">{message.subject}</div>
-        <div className="line-clamp-2 whitespace-pre-wrap text-xs text-muted-foreground">{message.body}</div>
+        {/* Flattened and cut here: Safari keeps the full height of a pre-wrapped body under line-clamp, which left a screen of empty space per message. */}
+        <div className="line-clamp-2 max-h-8 overflow-hidden break-words text-xs leading-4 text-muted-foreground">{preview(message.body)}</div>
         {message.reason ? <div className="text-xs text-amber-400">{message.reason}</div> : null}
       </button>
       <div className="mt-1 flex gap-1.5">
@@ -491,15 +512,11 @@ function TableAndFeed({ crew, members }: { crew: CrewDto; members: MemberDto[] }
 // Project overview (§3.9 "Oberfläche", §4.6)
 
 type OverviewCard = OverviewDto["crews"][number];
-const CARD_W = 300;
-const CARD_H = 150;
-const GAP_X = 80;
-const GAP_Y = 60;
-const PER_ROW = 3;
 
-/** Fixed grid positions, so the connecting lines can be drawn without measuring the DOM. */
-export function cardPosition(index: number): { x: number; y: number } {
-  return { x: (index % PER_ROW) * (CARD_W + GAP_X), y: Math.floor(index / PER_ROW) * (CARD_H + GAP_Y) };
+/** The crew part of an address (`key@crew`), or null for human and system. */
+function crewOfAddress(address: string): string | null {
+  const at = address.lastIndexOf("@");
+  return at > 0 ? address.slice(at + 1) : null;
 }
 
 export function CrewCard({
@@ -512,28 +529,35 @@ export function CrewCard({
   onMerge?: (id: string, action: "approve" | "reject") => void;
 }) {
   const waiting = card.merge && (card.merge.state === "open" || card.merge.state === "returned");
+  const needs = card.needsYou > 0;
   return (
+    // Graph Studio's card: a kind line with the status on the right, the name, then the facts.
     <div
       data-crew-card={card.name}
-      className={cn("flex h-full flex-col gap-1.5 rounded-lg border border-border bg-card p-3 text-xs", card.status === "stopped" && "opacity-70")}
+      className={cn("flex h-full flex-col gap-1 overflow-hidden rounded-[10px] px-3 py-2 text-xs shadow-sm transition-colors", card.status === "stopped" && "opacity-70")}
+      style={{
+        background: needs ? "color-mix(in oklab, var(--destructive) 10%, var(--card))" : "var(--card)",
+        border: `1.5px solid ${needs ? "var(--destructive)" : card.status === "running" ? "color-mix(in oklab, var(--primary) 55%, var(--border))" : "var(--border)"}`,
+      }}
     >
-      <button type="button" className="flex items-center gap-2 text-left text-sm font-semibold" onClick={() => onOpen?.(card.name)}>
-        <StatusDot status={card.status} />
+      <div className="flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.06em] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <StatusDot status={card.status} />
+          crew · {card.status}
+          {card.status === "stopped" ? <span data-card-status="stopped" className="sr-only">stopped</span> : null}
+        </span>
+        {needs ? <span className="normal-case tracking-normal text-[10px] text-[var(--destructive)]">{card.needsYou} Needs you</span> : null}
+      </div>
+      <button type="button" className="nodrag nopan truncate text-left text-sm font-medium text-foreground" onClick={(event) => (event.stopPropagation(), onOpen?.(card.name))}>
         {card.name}
-        {card.status === "stopped" ? (
-          <span data-card-status="stopped" className="rounded bg-muted px-1.5 text-[10px] font-normal uppercase text-muted-foreground">
-            stopped
-          </span>
-        ) : null}
-        {card.needsYou > 0 ? <span className="ml-auto text-[11px] font-normal text-red-400">{card.needsYou} Needs you</span> : null}
       </button>
-      <div className="text-muted-foreground">{card.task ? <span className="rounded bg-muted px-1.5 py-0.5 font-mono">{card.task}</span> : "no task"}</div>
-      <div className="truncate text-muted-foreground">
+      <div className="truncate text-[10px] text-muted-foreground">
+        {card.task ? <span className="mr-1 rounded-[4px] bg-muted px-1 font-mono text-foreground">{card.task}</span> : "no task · "}
         <span className="font-mono">⎇ {card.branch ?? "–"}</span>
         {card.behind !== null ? ` · ${card.behind} behind main` : ""}
         {card.merge ? ` · MR ${card.merge.state}` : ""}
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
         {card.members.map((member) => (
           <span key={member.key} className="flex items-center gap-1" title={member.needsYou.length ? `Needs you: ${member.needsYou.join(", ")}` : member.activity}>
             <Dot tone={member.needsYou.length ? "bg-red-400" : (ACTIVITY_TONE[member.activity] ?? "bg-muted-foreground")} />
@@ -548,10 +572,10 @@ export function CrewCard({
             {card.merge.reason ? ` · ${card.merge.reason}` : ""}
           </span>
           <span className="flex-1" />
-          <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => onMerge(card.merge!.id, "approve")}>
+          <Button size="sm" variant="outline" className="nodrag nopan h-6 px-2" onClick={(event) => (event.stopPropagation(), onMerge(card.merge!.id, "approve"))}>
             Merge
           </Button>
-          <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => onMerge(card.merge!.id, "reject")}>
+          <Button size="sm" variant="ghost" className="nodrag nopan h-6 px-2" onClick={(event) => (event.stopPropagation(), onMerge(card.merge!.id, "reject"))}>
             Reject
           </Button>
         </div>
@@ -560,73 +584,63 @@ export function CrewCard({
   );
 }
 
+/** Board lines: lead talk (live while a cross-crew message between the two is recent) and waitsFor. */
+export function boardLines(overview: OverviewDto, messages: readonly MessageDto[], now: number): BoardLine[] {
+  const talking = new Set(
+    messages
+      .filter((message) => message.crossCrew && now - message.createdAt <= RECENT_MS)
+      .map((message) => [crewOfAddress(message.fromAddress), crewOfAddress(message.toAddress)].sort().join("|")),
+  );
+  return [
+    ...overview.leadLinks.map((link) => ({
+      kind: "lead" as const,
+      from: link.from,
+      to: link.to,
+      label: `lead ↔ lead · ${link.count}`,
+      live: talking.has([link.from, link.to].sort().join("|")),
+    })),
+    ...overview.dependencies
+      .filter((dep) => dep.source !== null)
+      .map((dep) => ({ kind: "wait" as const, from: dep.crew, to: dep.source!, label: `waits for ${dep.task} · until ${dep.until} · ${dep.state}`, live: false })),
+  ];
+}
+
 export function ProjectBoard({
   overview,
+  messages = [],
   onOpen,
   onMerge,
 }: {
   overview: OverviewDto;
+  messages?: readonly MessageDto[];
   onOpen?: (name: string) => void;
   onMerge?: (id: string, action: "approve" | "reject") => void;
 }) {
-  const index = new Map(overview.crews.map((card, i) => [card.name, i]));
-  const center = (name: string) => {
-    const i = index.get(name);
-    if (i === undefined) return null;
-    const { x, y } = cardPosition(i);
-    return { x: x + CARD_W / 2, y: y + CARD_H / 2 };
-  };
-  const rows = Math.max(1, Math.ceil(overview.crews.length / PER_ROW));
-  const width = Math.min(overview.crews.length, PER_ROW) * (CARD_W + GAP_X) - GAP_X;
-  const height = rows * (CARD_H + GAP_Y) - GAP_Y;
-  const lines = [
-    ...overview.leadLinks.map((link) => ({ kind: "lead" as const, from: link.from, to: link.to, label: `lead ↔ lead · ${link.count}` })),
-    ...overview.dependencies
-      .filter((dep) => dep.source !== null)
-      .map((dep) => ({ kind: "wait" as const, from: dep.crew, to: dep.source!, label: `waits for ${dep.task} · until ${dep.until} · ${dep.state}` })),
-  ];
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
+  const lines = useMemo(() => boardLines(overview, messages, now), [overview, messages, now]);
+  const byName = useMemo(() => new Map(overview.crews.map((card) => [card.name, card])), [overview]);
+  const names = useMemo(() => overview.crews.map((card) => card.name), [overview]);
+  const renderCard = useCallback(
+    (name: string) => {
+      const card = byName.get(name);
+      return card ? <CrewCard card={card} onOpen={onOpen} onMerge={onMerge} /> : null;
+    },
+    [byName, onOpen, onMerge],
+  );
   return (
-    <div className="overflow-x-auto">
-      <div className="relative" style={{ width: Math.max(width, CARD_W), height }}>
-        <svg className="pointer-events-none absolute inset-0" width={Math.max(width, CARD_W)} height={height} aria-label="Crew connections">
-          {lines.map((line, i) => {
-            const a = center(line.from);
-            const b = center(line.to);
-            if (!a || !b) return null;
-            const offset = line.kind === "lead" ? -12 : 12;
-            return (
-              <g key={i} data-line={line.kind}>
-                <line
-                  x1={a.x}
-                  y1={a.y + offset}
-                  x2={b.x}
-                  y2={b.y + offset}
-                  stroke={line.kind === "lead" ? "#7aa2ff" : "#d9a441"}
-                  strokeDasharray={line.kind === "lead" ? "5 4" : undefined}
-                  strokeWidth={1.5}
-                />
-                <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 + offset - 4} fill={line.kind === "lead" ? "#7aa2ff" : "#d9a441"} fontSize={11} textAnchor="middle">
-                  {line.label}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-        {overview.crews.map((card, i) => {
-          const { x, y } = cardPosition(i);
-          return (
-            <div key={card.name} className="absolute" style={{ left: x, top: y, width: CARD_W, height: CARD_H }}>
-              <CrewCard card={card} onOpen={onOpen} onMerge={onMerge} />
-            </div>
-          );
-        })}
-      </div>
-      {/* The same connections as text, for narrow panels and screen readers. */}
+    <div>
+      <CrewBoardCanvas names={names} lines={lines} renderCard={renderCard} onOpen={onOpen} />
+      {/* The same connections as text: for screen readers, and readable without zooming. */}
       {lines.length > 0 ? (
         <ul className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground" aria-label="Connections">
           {lines.map((line, i) => (
-            <li key={i}>
-              <span className={line.kind === "lead" ? "text-sky-400" : "text-amber-400"}>{line.kind === "lead" ? "↔" : "⏳"}</span> {line.from} → {line.to}: {line.label}
+            <li key={i} data-line={line.kind} data-live={line.live ? "true" : undefined} className="flex items-center gap-1.5">
+              <Icon name={line.kind === "lead" ? "ArrowLeftRight" : "Hourglass"} className={cn("size-3", line.kind === "lead" ? "text-sky-400" : "text-amber-400")} />
+              {line.from} → {line.to}: {line.label}
             </li>
           ))}
         </ul>
@@ -691,10 +705,12 @@ function ProjectOverview({ projectId, crews, onOpen }: { projectId: string; crew
           </span>
         ) : null}
       </header>
-      {overview ? <ProjectBoard overview={overview} onOpen={onOpen} onMerge={onMerge} /> : <p className="text-sm text-muted-foreground">Loading…</p>}
+      {overview ? <ProjectBoard overview={overview} messages={messages} onOpen={onOpen} onMerge={onMerge} /> : <p className="text-sm text-muted-foreground">Loading…</p>}
       <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
         <header className="mb-2 flex flex-wrap items-center gap-3">
-          <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Project feed</h4>
+          {/* Between crews, through their leads; each crew's own talk lives in its crew view. */}
+          <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{crossOnly ? "Lead communication" : "Project feed"}</h4>
+          <span className="text-[11px] text-muted-foreground">{crossOnly ? "between crews · open a crew for its own talk" : "all messages of the project"}</span>
           <span className="flex-1" />
           <select aria-label="Filter by crew" className="rounded-md border border-input bg-transparent px-2 py-1 text-xs" value={crewFilter} onChange={(e) => setCrewFilter(e.target.value)}>
             <option value="">all crews</option>
@@ -858,13 +874,32 @@ export function TopologyTab({
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const [activity, setActivity] = useState<ActivityDto[]>([]);
+  const [messages, setMessages] = useState<MessageDto[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
+  const [messageId, setMessageId] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const refetch = useCallback(() => {
     rpc.call("getActivity", { projectId: crew.projectId, name: crew.name }).then((r) => setActivity(r.members), () => undefined);
+    rpc
+      .call("listMessages", { projectId: crew.projectId, crew: crew.name, crossCrew: false, limit: 200 })
+      .then((r) => setMessages(r.messages), () => undefined);
+    setNow(Date.now());
   }, [rpc, crew.projectId, crew.name]);
   useEffect(refetch, [refetch]);
   useRealtime(ACTIVITY_CHANNEL, refetch);
+  // Recency fades without a new message too: re-read the clock now and then.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
+  const known = useMemo(() => new Set(members.map((member) => member.key)), [members]);
+  const flows = useMemo(() => messageFlows(messages, crew.name, known), [messages, crew.name, known]);
+  const recent = useMemo(() => recentFlowIds(flows, now), [flows, now]);
+  const strip = useMemo(() => timeline(messages), [messages]);
+  const message = messages.find((entry) => entry.id === messageId) ?? null;
+  const activeFlow = message ? flowOf(message, crew.name, known) : null;
+  const openMember = (key: string) => void rpc.call("openMembers", { projectId: crew.projectId, name: crew.name, members: [key], leadOnly: false });
   // Needs you first: the card opens on the member that is waiting.
   const current =
     members.find((m) => m.key === selected) ??
@@ -899,21 +934,37 @@ export function TopologyTab({
           {note}
         </p>
       ) : null}
-      <div className="flex gap-4">
+      {/* Canvas and card side by side on a wide panel; on a phone the card goes under the canvas, as in Graph Studio. */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <TopologyCanvas
           members={members}
           links={links}
           activity={activity}
           selected={current?.key ?? null}
-          onSelect={setSelected}
-          onOpen={(key) => void rpc.call("openMembers", { projectId: crew.projectId, name: crew.name, members: [key], leadOnly: false })}
+          onSelect={(key) => {
+            setSelected(key);
+            setMessageId(null);
+          }}
+          onOpen={openMember}
+          flows={flows}
+          recent={recent}
+          activeFlow={activeFlow}
         />
-        {current ? (
+        {message ? (
+          <MessageCard message={message} crewName={crew.name} onClose={() => setMessageId(null)} onOpenSender={openMember} />
+        ) : current ? (
           <MemberCard
             member={current}
             view={activity.find((v) => v.key === current.key) ?? null}
             crewName={crew.name}
             onAction={act}
+            held={messages.filter((entry) => (entry.fromAddress === current.address || entry.toAddress === current.address) && HOLDABLE.has(entry.status))}
+            onMessageAction={async (id, action) => {
+              const result = await rpc.call("messageAction", { id, action });
+              setNote(result.error ?? `${action === "release" ? "Released" : "Discarded"} the message`);
+              refetch();
+            }}
+            onShowMessage={setMessageId}
             onAnswer={async (body) => {
               const result = await rpc.call("sendMessage", { projectId: crew.projectId, to: current.address, body, crew: crew.name, replyTo: null });
               setNote(result.error ?? `Answer sent to ${current.address}`);
@@ -922,6 +973,23 @@ export function TopologyTab({
           />
         ) : null}
       </div>
+      <TopologyLegend kinds={[...new Set(links.map((link) => link.kind))]} messages={flows.length > 0} />
+      <CommsStrip messages={strip} crewName={crew.name} selectedId={messageId} onSelect={setMessageId} />
+      <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4" aria-label="Crew communication">
+        <header className="mb-2 flex items-center gap-3">
+          <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Communication</h4>
+          <span className="text-[11px] text-muted-foreground">{messages.length} messages inside {crew.name}</span>
+        </header>
+        {messages.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No messages yet.</p>
+        ) : (
+          <ul aria-label="Crew log" className="max-h-80 overflow-y-auto">
+            {[...messages].reverse().map((entry) => (
+              <MessageItem key={entry.id} message={entry} selected={entry.id === messageId} onSelect={(id) => setMessageId(id === messageId ? null : id)} />
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
@@ -1145,21 +1213,16 @@ function AttachForm({ crew, members, onDone }: { crew: CrewDto; members: MemberD
   );
 }
 
-function CrewChips({ label, crews, onPick }: { label: string; crews: CrewDto[]; onPick: (id: string) => void }) {
-  const other = label !== "Crews";
+function CrewChips({ crews, onPick }: { crews: CrewDto[]; onPick: (id: string) => void }) {
   return (
-    <ul className="flex flex-wrap items-center gap-2" aria-label={label}>
-      {other ? <li className="text-[11px] uppercase tracking-wider text-muted-foreground">Other projects</li> : null}
+    <ul className="flex flex-wrap items-center gap-2" aria-label="Crews">
       {crews.map((entry) => (
         <li key={entry.id}>
           <button
             type="button"
-            title={other ? `${entry.name} · project ${entry.projectId} · ${entry.status}` : entry.status}
+            title={entry.status}
             onClick={() => onPick(entry.id)}
-            className={cn(
-              "flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted/60",
-              (other || entry.status === "stopped") && "opacity-70",
-            )}
+            className={cn("flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted/60", entry.status === "stopped" && "opacity-70")}
           >
             <StatusDot status={entry.status} />
             {entry.name}
@@ -1168,6 +1231,30 @@ function CrewChips({ label, crews, onPick }: { label: string; crews: CrewDto[]; 
       ))}
     </ul>
   );
+}
+
+/** Projects that have crews, in first-seen order, with the name the server reported (the id when it did not). */
+export function crewProjects(crews: readonly CrewDto[]): { id: string; name: string; count: number }[] {
+  const projects = new Map<string, { id: string; name: string; count: number }>();
+  for (const entry of crews) {
+    const project = projects.get(entry.projectId);
+    if (project) project.count += 1;
+    else projects.set(entry.projectId, { id: entry.projectId, name: entry.projectName ?? entry.projectId, count: 1 });
+  }
+  return [...projects.values()];
+}
+
+/**
+ * The project the panel shows: the one picked, else the project BB is in when
+ * it has crews, else the first with crews. Anchoring to BB's project — not to
+ * whichever crew was selected last — is what keeps the crew you work with
+ * from landing under "other projects".
+ */
+export function shownProject(crews: readonly CrewDto[], picked: string | null, current: string | null): string | null {
+  const has = (id: string | null) => id !== null && crews.some((entry) => entry.projectId === id);
+  if (has(picked)) return picked;
+  if (has(current)) return current;
+  return crews[0]?.projectId ?? null;
 }
 
 function CrewsPage() {
@@ -1186,8 +1273,13 @@ function CrewsPage() {
   const [menu, setMenu] = useState(false);
   const [form, setForm] = useState<"add" | "attach" | "delete" | null>(null);
   const [busy, setBusy] = useState(false);
-  const crew = crews?.find((entry) => entry.id === selected) ?? crews?.[0] ?? null;
-  useNeedsYou();
+  const [pickedProject, setPickedProject] = useState<string | null>(null);
+  const { projectId: bbProject } = useBbContext();
+  const projectId = shownProject(crews ?? [], pickedProject, bbProject);
+  const projectCrews = useMemo(() => (crews ?? []).filter((entry) => entry.projectId === projectId), [crews, projectId]);
+  const projects = useMemo(() => crewProjects(crews ?? []), [crews]);
+  const crew = projectCrews.find((entry) => entry.id === selected) ?? projectCrews[0] ?? null;
+  const { byProject } = useNeedsYou();
 
   const refetch = useCallback(() => {
     rpc.call("listCrews", { projectId: null }).then(
@@ -1238,7 +1330,7 @@ function CrewsPage() {
   };
 
   return (
-    <div className="h-full min-h-0 flex-1 overflow-y-auto">
+    <div className="h-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
       <div className="mx-auto box-border w-full max-w-6xl px-4 pb-4 pt-3 md:px-5 md:pt-4">
         {error ? (
           <p role="alert" className="mb-3 text-sm text-destructive">
@@ -1254,27 +1346,44 @@ function CrewsPage() {
         ) : (
           <div className="flex flex-col gap-4">
             {view === "overview" ? (
-              // Chips follow the overview below: this project's crews (stopped ones
-              // included, as the overview counts them), other projects' crews apart —
-              // mixing them made the chips list crews the overview never showed.
-              <div className="flex flex-col gap-2">
-                <CrewChips label="Crews" crews={crews.filter((entry) => entry.projectId === crew?.projectId)} onPick={(id) => {
-                  setSelected(id);
-                  setView("crew");
-                }} />
-                {crews.some((entry) => entry.projectId !== crew?.projectId) ? (
-                  <CrewChips
-                    label="Crews in other projects"
-                    crews={crews.filter((entry) => entry.projectId !== crew?.projectId)}
-                    onPick={(id) => setSelected(id)}
-                  />
+              // One project at a time, chosen explicitly: the chips list exactly
+              // the crews of the board below. Other projects are a switch away,
+              // not a second row of chips that reads as "the rest".
+              <div className="flex flex-wrap items-center gap-3">
+                {projects.length > 1 ? (
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Icon name="FolderOpen" className="size-3.5" />
+                    <select
+                      aria-label="Project"
+                      className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-sm font-medium text-foreground hover:bg-[#1a1a1c]"
+                      value={projectId ?? ""}
+                      onChange={(event) => {
+                        setPickedProject(event.target.value);
+                        setSelected(null);
+                      }}
+                    >
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name} ({project.count}){byProject[project.id] ? ` · ${byProject[project.id]} need you` : ""}
+                          {project.id === bbProject ? " · current" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 ) : null}
+                <CrewChips
+                  crews={projectCrews}
+                  onPick={(id) => {
+                    setSelected(id);
+                    setView("crew");
+                  }}
+                />
               </div>
             ) : null}
             {view === "overview" && crew ? (
               <ProjectOverview
                 projectId={crew.projectId}
-                crews={crews.filter((entry) => entry.projectId === crew.projectId)}
+                crews={projectCrews}
                 onOpen={(name) => {
                   const match = crews.find((entry) => entry.projectId === crew.projectId && entry.name === name);
                   if (match) setSelected(match.id);
@@ -1294,27 +1403,13 @@ function CrewsPage() {
                     value={crew.id}
                     onChange={(event) => setSelected(event.target.value)}
                   >
-                    {/* Same split as the overview chips: this project first, other projects apart. */}
-                    {crews
-                      .filter((entry) => entry.projectId === crew.projectId)
-                      .map((entry) => (
-                        <option key={entry.id} value={entry.id}>
-                          {entry.name}
-                          {entry.status === "stopped" ? " (stopped)" : ""}
-                        </option>
-                      ))}
-                    {crews.some((entry) => entry.projectId !== crew.projectId) ? (
-                      <optgroup label="Other projects">
-                        {crews
-                          .filter((entry) => entry.projectId !== crew.projectId)
-                          .map((entry) => (
-                            <option key={entry.id} value={entry.id}>
-                              {entry.name}
-                              {entry.status === "stopped" ? " (stopped)" : ""}
-                            </option>
-                          ))}
-                      </optgroup>
-                    ) : null}
+                    {/* The project's crews only; the project is switched on the overview. */}
+                    {projectCrews.map((entry) => (
+                      <option key={entry.id} value={entry.id}>
+                        {entry.name}
+                        {entry.status === "stopped" ? " (stopped)" : ""}
+                      </option>
+                    ))}
                   </select>
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <StatusDot status={crew.status} /> {crew.status} · {members.length} members · file v{crew.fileVersion}

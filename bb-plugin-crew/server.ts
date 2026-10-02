@@ -13,7 +13,7 @@ import { defineRpcContract, type BbPluginApi, type JsonValue } from "@get-bb/plu
 import { parseLimitStatus } from "./lib/capacity";
 import { createTasksRpcPort } from "./lib/dependencies";
 import { z } from "zod";
-import type { ActivityView } from "./lib/activity";
+import { liveViews, type ActivityView } from "./lib/activity";
 import { registerAgentTools, type Confirm } from "./lib/agent";
 import { CONTRACT_VERSION } from "./lib/contract";
 import { openLayout } from "./lib/layout";
@@ -35,6 +35,8 @@ const crewSchema = z.object({
   fileVersion: z.number(),
   status: z.enum(["stopped", "starting", "running", "degraded"]),
   updatedAt: z.number(),
+  /** The BB project's name, for the panel's project switch; null when BB did not report it. */
+  projectName: z.string().nullable().default(null),
 });
 const memberSchema = z.object({
   key: z.string(),
@@ -403,6 +405,8 @@ export const rpcContract = defineRpcContract({
     output: z.object({
       rows: z.array(z.object({ threadId: z.string(), status: rowStatusSchema.nullable() })),
       needsYou: z.number(),
+      /** Needs you per project: the header counts every project, the panel shows one. */
+      byProject: z.record(z.string(), z.number()).default({}),
     }),
   },
 });
@@ -695,7 +699,17 @@ export default async function plugin(bb: BbPluginApi) {
   void CONTRACT_VERSION;
 
   bb.rpc.register(rpcContract, {
-    listCrews: ({ projectId }) => ({ crews: store.listCrews(projectId ?? undefined).map(dto) }),
+    listCrews: async ({ projectId }) => {
+      const crews = store.listCrews(projectId ?? undefined).map(dto);
+      // Names only decorate the switch: a failing lookup must not hide the crews.
+      const names = new Map<string, string>();
+      try {
+        for (const project of await bb.sdk.projects.list()) names.set(project.id, project.name);
+      } catch {
+        // fall through with ids
+      }
+      return { crews: crews.map((crew) => ({ ...crew, projectName: names.get(crew.projectId) ?? null })) };
+    },
     getCrew: async ({ projectId, name }) => {
       const crew = store.findCrew(projectId, name);
       return { crew: crew ? dto(crew) : null, members: crew ? await service.members(crew) : [], links: crew ? store.listLinks(crew.id) : [] };
@@ -982,10 +996,15 @@ export default async function plugin(bb: BbPluginApi) {
     listMembers: ({ projectId, crew }) => service.contract.listMembers(projectId, crew),
     memberReply: ({ messageId }) => service.contract.memberReply(messageId),
     rowStatuses: () => {
-      const views = service.activity.cached().filter((view) => view.threadId !== null);
+      const live = new Set(store.listCrews().flatMap((crew) => store.listMembers(crew.id).map((member) => member.id)));
+      const views = liveViews(service.activity.cached(), live);
       return {
         rows: views.map((view) => ({ threadId: view.threadId!, status: view.rowStatus })),
         needsYou: views.filter((view) => view.needsYou.length > 0).length,
+        byProject: views.reduce<Record<string, number>>((counts, view) => {
+          if (view.needsYou.length > 0) counts[view.projectId] = (counts[view.projectId] ?? 0) + 1;
+          return counts;
+        }, {}),
       };
     },
   });
