@@ -13,6 +13,8 @@ export type GraphRun = {
   error: string | null;
   /** The run's state (graph-studio's `RunDto.state`); opaque here, formatted by the caller. */
   state: unknown;
+  /** Worker thread ids of its member nodes (`NodeRunDto.childThreadId`), for BBP-31's delete cleanup. */
+  childThreadIds: string[];
 };
 
 export type GraphsRpc = {
@@ -20,13 +22,21 @@ export type GraphsRpc = {
   /** `threadId` is required: graph-studio's startRun rejects a run without a parent thread, whose environment the workers inherit. */
   startRun(args: { graphId: string; input: string; threadId: string; projectId: string | null }): Promise<GraphRun>;
   getRun(id: string): Promise<GraphRun | null>;
+  /** BBP-31: `bb crew stop` cancels open runs with this. */
+  stopRun(id: string): Promise<GraphRun | null>;
 };
 
 /** `bb.sdk.plugins.callRpc({ pluginId: "graph-studio", ... })`, wrapped the way `createTasksRpcPort` wraps the tasks plugin. */
 export function createGraphsRpc(callRpc: (method: string, input: unknown) => Promise<unknown>): GraphsRpc {
   const toRun = (run: unknown): GraphRun => {
-    const r = run as { id: string; status: RunStatus; error: string | null; state?: unknown };
-    return { id: r.id, status: r.status, error: r.error, state: r.state ?? null };
+    const r = run as { id: string; status: RunStatus; error: string | null; state?: unknown; nodeRuns?: { childThreadId: string | null }[] };
+    return {
+      id: r.id,
+      status: r.status,
+      error: r.error,
+      state: r.state ?? null,
+      childThreadIds: (r.nodeRuns ?? []).map((node) => node.childThreadId).filter((id): id is string => typeof id === "string"),
+    };
   };
   return {
     async listGraphs() {
@@ -41,6 +51,10 @@ export function createGraphsRpc(callRpc: (method: string, input: unknown) => Pro
       const result = (await callRpc("getRun", { id })) as { run: unknown | null };
       return result.run ? toRun(result.run) : null;
     },
+    async stopRun(id) {
+      const result = (await callRpc("stopRun", { runId: id })) as { run: unknown | null };
+      return result.run ? toRun(result.run) : null;
+    },
   };
 }
 
@@ -53,6 +67,10 @@ export type RunToCompletionOptions = {
   timeoutMs?: number;
   wait?: (ms: number) => Promise<void>;
   now?: () => number;
+  /** Fires right after the run starts, so the caller can record it durably (BBP-31). */
+  onStart?: (run: GraphRun) => void;
+  /** Fires after every status change seen while polling, including the final one. */
+  onPoll?: (run: GraphRun) => void;
 };
 
 export type RunOutcome = { run: GraphRun; timedOut: boolean };
@@ -69,13 +87,19 @@ export async function runToCompletion(
   const now = options.now ?? Date.now;
   const started = now();
   let run = await rpc.startRun(args);
+  options.onStart?.(run);
   while (!TERMINAL.has(run.status)) {
     if (now() - started >= timeoutMs) return { run, timedOut: true };
     await wait(pollMs);
     const polled = await rpc.getRun(run.id);
     // getRun returning null mid-poll means the run is gone, not that it succeeded.
-    if (!polled) return { run: { ...run, status: "failed", error: "The run vanished (graph-studio no longer has it)." }, timedOut: false };
+    if (!polled) {
+      const vanished: GraphRun = { ...run, status: "failed", error: "The run vanished (graph-studio no longer has it)." };
+      options.onPoll?.(vanished);
+      return { run: vanished, timedOut: false };
+    }
     run = polled;
+    options.onPoll?.(run);
   }
   return { run, timedOut: false };
 }

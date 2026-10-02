@@ -233,10 +233,57 @@ export function createCrewService(deps: ServiceDeps) {
     limit,
     directory: (projectId: string) => buildDirectory(store, models, projectId),
     graphs: {
-      /** Run a graph-studio graph to completion for crew_graph_run (BBP-30). Rejects when no graphsRpc is configured. */
-      run(args: { graphId: string; input: string; threadId: string; projectId: string | null }, options?: RunToCompletionOptions): Promise<RunOutcome> {
+      /**
+       * Run a graph-studio graph to completion for crew_graph_run (BBP-30),
+       * recording it in `graph_runs` as it starts and as its status changes
+       * (BBP-31), linked to the member and crew that started it. Rejects when
+       * no graphsRpc is configured.
+       */
+      run(
+        args: { graphId: string; input: string; threadId: string; projectId: string | null; crewId: string; memberId: string },
+        options: RunToCompletionOptions = {},
+      ): Promise<RunOutcome> {
         if (!deps.graphsRpc) return Promise.reject(new Error("graph-studio is not available here."));
-        return runToCompletion(deps.graphsRpc, args, options);
+        return runToCompletion(deps.graphsRpc, args, {
+          ...options,
+          onStart: (run) => {
+            store.insertGraphRun({ runId: run.id, crewId: args.crewId, memberId: args.memberId, graphId: args.graphId, status: run.status });
+            options.onStart?.(run);
+          },
+          onPoll: (run) => {
+            store.updateGraphRunStatus(run.id, run.status);
+            options.onPoll?.(run);
+          },
+        });
+      },
+      /** bb crew stop: cancel every open run of this crew via graph-studio's stopRun. Best-effort. */
+      async cancelOpen(crewId: string): Promise<number> {
+        if (!deps.graphsRpc) return 0;
+        let cancelled = 0;
+        for (const row of store.listOpenGraphRunsForCrew(crewId)) {
+          try {
+            await deps.graphsRpc.stopRun(row.runId);
+            cancelled += 1;
+          } catch {
+            // best-effort: the run may already be gone or graph-studio unreachable.
+          }
+          store.updateGraphRunStatus(row.runId, "stopped");
+        }
+        return cancelled;
+      },
+      /** bb crew delete --threads delete: every worker thread any run of this crew ever spawned. BB does not delete these on its own (they are not parented under the member's thread). */
+      async workerThreadIds(crewId: string): Promise<string[]> {
+        if (!deps.graphsRpc) return [];
+        const ids: string[] = [];
+        for (const row of store.listGraphRunsForCrew(crewId)) {
+          try {
+            const run = await deps.graphsRpc.getRun(row.runId);
+            if (run) ids.push(...run.childThreadIds);
+          } catch {
+            // best-effort: skip runs graph-studio can no longer report on.
+          }
+        }
+        return ids;
       },
     },
     /** One follow-up sweep (schedule: every minute). */
@@ -321,6 +368,7 @@ export function createCrewService(deps: ServiceDeps) {
 
     async stop(crew: CrewRow, options: { archive?: boolean } = {}): Promise<StopResult[]> {
       const results = await stop(ctx, crew, options);
+      await service.graphs.cancelOpen(crew.id).catch(() => 0);
       directoryChanged(crew, options.archive ? "stopped and archived" : "stopped");
       await flush();
       return results;
@@ -413,6 +461,24 @@ export function createCrewService(deps: ServiceDeps) {
         throw new DeleteRefused(
           `Crew ${crew.name} was not deleted: ${failed.length} thread(s) failed (${failed.map((result) => `${result.threadId}: ${result.error}`).join("; ")}). Nothing was removed from the database; run the delete again.`,
         );
+      }
+      // BBP-31: graph run worker threads are graph-studio's own threads, not
+      // BB children of the member's thread, so `deleteTree` above never finds
+      // them — look them up and delete them explicitly.
+      if (mode === "delete") {
+        const workerThreads = await service.graphs.workerThreadIds(crew.id).catch(() => []);
+        let deletedWorkers = 0;
+        for (const threadId of workerThreads) {
+          if (done.has(threadId)) continue;
+          done.add(threadId);
+          try {
+            await deps.port.delete(threadId);
+            deletedWorkers += 1;
+          } catch (error) {
+            warnings.push(`graph run worker thread ${threadId} was not deleted: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        if (deletedWorkers > 0) warnings.push(`deleted ${deletedWorkers} graph run worker thread(s)`);
       }
       const rows = store.deleteCrewRows(crew.id);
       directoryChanged(crew, "was deleted");

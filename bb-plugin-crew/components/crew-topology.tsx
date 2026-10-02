@@ -628,6 +628,16 @@ export function MemberCard({
           </>
         ) : null}
       </dl>
+      {view && view.graphRuns && view.graphRuns.length > 0 ? (
+        <ul className="mb-3 flex flex-col gap-1 border-l border-[#1f1f22] pl-2.5 text-xs">
+          {view.graphRuns.map((run) => (
+            <li key={run.runId} className="flex items-center justify-between gap-2 text-muted-foreground">
+              <span>{run.graphId}</span>
+              <span className={run.status === "failed" ? "text-[#ef6b6b]" : run.status === "done" ? "text-[#6bbf6b]" : ""}>{run.status}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <div className="flex flex-wrap items-center gap-1.5">
         <Button size="sm" variant="outline" className="h-7" disabled={!member.threadId} onClick={() => onAction("open")}>
           Open

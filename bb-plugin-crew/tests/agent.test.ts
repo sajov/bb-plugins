@@ -27,6 +27,8 @@ async function withHost(options: { confirm?: Confirm; graphsRpc?: GraphsRpc | nu
   return { ...env, ...crew, harness, meta };
 }
 
+const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], ...overrides });
+
 function fakeGraphsRpc(run: GraphRun): GraphsRpc {
   return {
     listGraphs: async () => [{ id: "release", name: "Release" }],
@@ -36,6 +38,7 @@ function fakeGraphsRpc(run: GraphRun): GraphsRpc {
       return run;
     },
     getRun: async (id) => ({ ...run, id }),
+    stopRun: async (id) => ({ ...run, id, status: "stopped" }),
   };
 }
 
@@ -283,7 +286,7 @@ describe("crew_graph_run (BBP-30)", () => {
   });
 
   it("end to end: dev-impl has the tool, dev-review does not", async () => {
-    const env = await withHost({ yaml: graphYaml(), graphsRpc: fakeGraphsRpc({ id: "run_1", status: "done", error: null, state: null }) });
+    const env = await withHost({ yaml: graphYaml(), graphsRpc: fakeGraphsRpc(mkRun({ id: "run_1", status: "done" })) });
     const member = await env.harness.behavior.resolveAgentConfiguration(context(env.threads["dev-impl"]!, env.meta("dev-impl")));
     expect(member.tools.map((tool) => tool.name)).toContain(GRAPH_TOOL_NAME);
     const reviewer = await env.harness.behavior.resolveAgentConfiguration(context(env.threads["dev-review"]!, env.meta("dev-review")));
@@ -299,6 +302,7 @@ describe("crew_graph_run (BBP-30)", () => {
         throw new Error("should not run");
       },
       getRun: async () => null,
+      stopRun: async () => null,
     };
     const env = await withHost({ yaml: graphYaml(), graphsRpc: rpc });
     const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "not-listed", input: "go" }, { threadId: env.threads["dev-impl"]! });
@@ -316,9 +320,10 @@ describe("crew_graph_run (BBP-30)", () => {
         if (!args.threadId) throw new Error("A run needs a parent thread whose environment the workers inherit.");
         seenInput = args.input;
         seenThreadId = args.threadId;
-        return { id: "run_1", status: "done", error: null, state: { collected: ["ok"] } };
+        return mkRun({ id: "run_1", status: "done", state: { collected: ["ok"] } });
       },
-      getRun: async (id) => ({ id, status: "done", error: null, state: { collected: ["ok"] } }),
+      getRun: async (id) => mkRun({ id, status: "done", state: { collected: ["ok"] } }),
+      stopRun: async (id) => mkRun({ id, status: "stopped" }),
     };
     const env = await withHost({ yaml: graphYaml(), graphsRpc: rpc });
     const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "release", input: "ship it" }, { threadId: env.threads["dev-impl"]! });
@@ -334,7 +339,7 @@ describe("crew_graph_run (BBP-30)", () => {
   it("negative: a failed run is a tool error with the run's error", async () => {
     const env = await withHost({
       yaml: graphYaml(),
-      graphsRpc: fakeGraphsRpc({ id: "run_1", status: "failed", error: "node crashed", state: null }),
+      graphsRpc: fakeGraphsRpc(mkRun({ id: "run_1", status: "failed", error: "node crashed" })),
     });
     const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "release", input: "go" }, { threadId: env.threads["dev-impl"]! });
     expect(isError(result)).toBe(true);
@@ -347,9 +352,10 @@ describe("crew_graph_run (BBP-30)", () => {
       listGraphs: async () => [{ id: "release", name: "Release" }],
       startRun: async (args) => {
         if (!args.threadId) throw new Error("A run needs a parent thread whose environment the workers inherit.");
-        return { id: "run_1", status: "running", error: null, state: null };
+        return mkRun({ id: "run_1", status: "running" });
       },
       getRun: async () => null,
+      stopRun: async () => null,
     };
     const env = await withHost({ yaml: graphYaml(), graphsRpc: rpc });
     const result = await env.harness.behavior.callAgentTool("crew_graph_run", { graph: "release", input: "go" }, { threadId: env.threads["dev-impl"]! });

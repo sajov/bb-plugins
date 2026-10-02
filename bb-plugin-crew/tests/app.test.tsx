@@ -39,6 +39,7 @@ const view = (overrides: Partial<ActivityDto>): ActivityDto => ({
   rowStatus: null,
   openWork: 0,
   context: null,
+  graphRuns: [],
   ...overrides,
 });
 

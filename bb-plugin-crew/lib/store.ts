@@ -229,6 +229,19 @@ export const MIGRATIONS: readonly string[] = [
      message_id TEXT NOT NULL,
      created_at INTEGER NOT NULL
    )`,
+  // BBP-31: links a graph-studio run (crew_graph_run) back to the member and
+  // crew that started it, durably — graph-studio only indexes runs by thread.
+  `CREATE TABLE IF NOT EXISTS graph_runs (
+     run_id TEXT PRIMARY KEY,
+     crew_id TEXT NOT NULL,
+     member_id TEXT NOT NULL,
+     graph_id TEXT NOT NULL,
+     status TEXT NOT NULL,
+     started_at INTEGER NOT NULL,
+     updated_at INTEGER NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS graph_runs_by_member ON graph_runs (member_id, status)`,
+  `CREATE INDEX IF NOT EXISTS graph_runs_by_crew ON graph_runs (crew_id, status)`,
 ];
 
 export const CREW_STATUSES = ["stopped", "starting", "running", "degraded"] as const;
@@ -388,6 +401,18 @@ export type HandoverRow = {
 };
 export type MemberEnvRow = { memberId: string; environmentId: string | null; path: string | null; branch: string | null; updatedAt: number };
 
+/** BBP-31: a graph-studio run started by crew_graph_run, linked to the member and crew that started it. */
+export type GraphRunRow = {
+  runId: string;
+  crewId: string;
+  memberId: string;
+  graphId: string;
+  status: string;
+  startedAt: number;
+  updatedAt: number;
+};
+const OPEN_GRAPH_RUN_STATUSES = ["running", "stopping", "waiting-human"] as const;
+
 export type MessageFilter = {
   projectId?: string;
   crewId?: string;
@@ -542,6 +567,16 @@ const toMerge = (row: Raw): MergeRequestRow => ({
   commitSha: (row.commit_sha as string | null) ?? null,
   mergedBy: (row.merged_by as string | null) ?? null,
   createdAt: Number(row.created_at),
+  updatedAt: Number(row.updated_at),
+});
+
+const toGraphRun = (row: Raw): GraphRunRow => ({
+  runId: String(row.run_id),
+  crewId: String(row.crew_id),
+  memberId: String(row.member_id),
+  graphId: String(row.graph_id),
+  status: String(row.status),
+  startedAt: Number(row.started_at),
   updatedAt: Number(row.updated_at),
 });
 
@@ -1326,6 +1361,38 @@ export function createStore(db: Database, now: () => number = Date.now) {
       const guard = from && from.length > 0 ? ` AND state IN (${from.map(() => "?").join(", ")})` : "";
       return db.prepare(`UPDATE handovers SET ${sets.join(", ")} WHERE id = ?${guard}`).run(...values, id, ...(from ?? [])).changes === 1;
     },
+    /** BBP-31: record a just-started graph run, linked to the member and crew. */
+    insertGraphRun(row: Pick<GraphRunRow, "runId" | "crewId" | "memberId" | "graphId" | "status">): GraphRunRow {
+      const at = now();
+      db.prepare(
+        "INSERT INTO graph_runs (run_id, crew_id, member_id, graph_id, status, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run(row.runId, row.crewId, row.memberId, row.graphId, row.status, at, at);
+      return this.getGraphRun(row.runId)!;
+    },
+    getGraphRun(runId: string): GraphRunRow | null {
+      const row = db.prepare("SELECT * FROM graph_runs WHERE run_id = ?").get(runId) as Raw | undefined;
+      return row ? toGraphRun(row) : null;
+    },
+    updateGraphRunStatus(runId: string, status: string): void {
+      db.prepare("UPDATE graph_runs SET status = ?, updated_at = ? WHERE run_id = ?").run(status, now(), runId);
+    },
+    /** Every run linked to this member (board/activity), newest first. */
+    listGraphRuns(memberId: string): GraphRunRow[] {
+      return (db.prepare("SELECT * FROM graph_runs WHERE member_id = ? ORDER BY started_at DESC, rowid DESC").all(memberId) as Raw[]).map(toGraphRun);
+    },
+    /** Every run ever linked to this crew (cleanup on delete), regardless of status. */
+    listGraphRunsForCrew(crewId: string): GraphRunRow[] {
+      return (db.prepare("SELECT * FROM graph_runs WHERE crew_id = ? ORDER BY started_at, rowid").all(crewId) as Raw[]).map(toGraphRun);
+    },
+    /** Open runs of this crew (bb crew stop cancels these). */
+    listOpenGraphRunsForCrew(crewId: string): GraphRunRow[] {
+      return (
+        db
+          .prepare(`SELECT * FROM graph_runs WHERE crew_id = ? AND status IN (${OPEN_GRAPH_RUN_STATUSES.map(() => "?").join(", ")}) ORDER BY started_at, rowid`)
+          .all(crewId, ...OPEN_GRAPH_RUN_STATUSES) as Raw[]
+      ).map(toGraphRun);
+    },
+
     rpcSend(correlationId: string): string | null {
       const row = db.prepare("SELECT message_id FROM rpc_sends WHERE correlation_id = ?").get(correlationId) as { message_id: string } | undefined;
       return row?.message_id ?? null;
@@ -1393,7 +1460,7 @@ export function createStore(db: Database, now: () => number = Date.now) {
           run(table, `DELETE FROM ${table} WHERE member_id IN (${memberIds})`, crewId);
         }
         run("work_transitions", "DELETE FROM work_transitions WHERE item_id IN (SELECT id FROM work_items WHERE crew_id = ?)", crewId);
-        for (const table of ["work_items", "channel_messages", "escalations", "crew_dependencies", "merge_requests", "snapshots", "links", "crew_files", "members"]) {
+        for (const table of ["work_items", "channel_messages", "escalations", "crew_dependencies", "merge_requests", "snapshots", "graph_runs", "links", "crew_files", "members"]) {
           run(table, `DELETE FROM ${table} WHERE crew_id = ?`, crewId);
         }
         // No setting is crew-scoped today; the prefix keeps a future per-crew key from outliving its crew.

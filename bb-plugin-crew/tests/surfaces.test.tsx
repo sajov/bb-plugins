@@ -41,6 +41,7 @@ const view = (overrides: Partial<ActivityDto>): ActivityDto => ({
   rowStatus: null,
   openWork: 0,
   context: null,
+  graphRuns: [],
   ...overrides,
 });
 const members = [member({ key: "orch-lead", groupId: "orch", address: "orch-lead@trio", lead: true, threadId: "th_1" }), member({})];
@@ -233,6 +234,31 @@ describe("topology", () => {
     fireEvent.click(within(card).getByRole("button", { name: "Reset" }));
     await waitFor(() => expect(calls.map((c) => c.method)).toEqual(["openMembers", "reset"]));
     expect(calls[1]!.input).toEqual({ projectId: "p1", name: "trio", member: "orch-lead", mode: "clear" });
+    slot.lifecycle.unmount();
+  });
+
+  it("BBP-31: a member with open graph runs shows a sub-row per run; negative: none means no list", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
+      rpc: backend({
+        getActivity: () => ({
+          members: [
+            view({ key: "orch-lead", lead: true }),
+            view({ graphRuns: [{ runId: "run_1", graphId: "release", status: "running" }, { runId: "run_2", graphId: "triage", status: "failed" }] }),
+          ],
+        }),
+      }),
+    });
+    await openCrew(slot, "Topology");
+    // negative: the initially selected lead card has no runs, so none of this shows.
+    const leadCard = await slot.findByRole("complementary", { name: "Member card" });
+    expect(leadCard.textContent).not.toContain("release");
+    fireEvent.click(slot.container.querySelector('[data-member-node="dev-impl"]')!);
+    const card = await slot.findByRole("complementary", { name: "Member card" });
+    expect(card.textContent).toContain("release");
+    expect(card.textContent).toContain("running");
+    expect(card.textContent).toContain("triage");
+    expect(card.textContent).toContain("failed");
     slot.lifecycle.unmount();
   });
 });

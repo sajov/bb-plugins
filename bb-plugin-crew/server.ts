@@ -111,6 +111,7 @@ const activitySchema = z.object({
   rowStatus: rowStatusSchema.nullable(),
   openWork: z.number().default(0),
   context: z.number().nullable().default(null),
+  graphRuns: z.array(z.object({ runId: z.string(), graphId: z.string(), status: z.string() })).default([]),
 });
 const channelSchema = z.object({ id: z.string(), author: z.string(), topic: z.string().nullable(), body: z.string(), createdAt: z.number() });
 const workSchema = z.object({
@@ -462,6 +463,7 @@ function activityDto(view: ActivityView): ActivityDto {
     rowStatus: view.rowStatus,
     openWork: view.openWork,
     context: view.context,
+    graphRuns: [...view.graphRuns],
   };
 }
 

@@ -43,6 +43,8 @@ export type ActivityInput = {
   needs?: readonly { reason: string; detail: string | null }[];
   context?: ContextUsage | null;
   throttled?: number;
+  /** BBP-31: this member's graph_runs rows, newest first. */
+  graphRuns?: readonly { runId: string; graphId: string; status: string }[];
 };
 
 export type Derived = {
@@ -56,6 +58,8 @@ export type Derived = {
   openWork: number;
   /** Context usage as a fraction 0–1; null when BB did not report it. */
   context: number | null;
+  /** BBP-31: this member's graph_runs rows, newest first. */
+  graphRuns: readonly { runId: string; graphId: string; status: string }[];
 };
 
 const WORKING = new Set(["active", "pending", "starting", "stopping"]);
@@ -105,7 +109,7 @@ export function deriveActivity(input: ActivityInput): Derived {
     : (interactions[0]?.title ??
       (input.mergeRequest ? input.mergeRequest : null) ??
       (conflict ? `Rebase conflict: ${conflict.detail ?? "see the member thread"}` : null));
-  return { thread: axis, activity, needsYou, question, held: input.held, diagnoses, openWork, context };
+  return { thread: axis, activity, needsYou, question, held: input.held, diagnoses, openWork, context, graphRuns: input.graphRuns ?? [] };
 }
 
 export type RowStatus = { icon: string; label: string; tone: "default" | "error" | "running" | "success" };
@@ -182,6 +186,7 @@ export function createActivityTracker(deps: {
       needs: store.listNeeds(member.id),
       throttled: store.countByMember(member.id, "to", "throttled"),
       context,
+      graphRuns: store.listGraphRuns(member.id).map((row) => ({ runId: row.runId, graphId: row.graphId, status: row.status })),
       ...deps.extras?.(crew, member),
     });
     return {

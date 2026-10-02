@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { runToCompletion, type GraphRun, type GraphsRpc } from "../lib/graphs";
 
+const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], ...overrides });
+
 function fakeClock(start = 0) {
   let now = start;
   return {
@@ -29,7 +31,7 @@ function fakeRpc(runs: GraphRun[]): Pick<GraphsRpc, "startRun" | "getRun"> {
 
 describe("runToCompletion", () => {
   it("negative: startRun without threadId is refused (graph-studio needs a parent thread)", async () => {
-    const rpc = fakeRpc([{ id: "run_1", status: "done", error: null, state: null }]);
+    const rpc = fakeRpc([mkRun({ id: "run_1", status: "done" })]);
     const clock = fakeClock();
     await expect(
       runToCompletion(rpc, { graphId: "g", input: "hi", threadId: "", projectId: null }, { wait: clock.wait, now: clock.now }),
@@ -37,7 +39,7 @@ describe("runToCompletion", () => {
   });
 
   it("positive: a run already done on start needs no polling", async () => {
-    const rpc = fakeRpc([{ id: "run_1", status: "done", error: null, state: { ok: true } }]);
+    const rpc = fakeRpc([mkRun({ id: "run_1", status: "done", state: { ok: true } })]);
     const clock = fakeClock();
     const { run, timedOut } = await runToCompletion(rpc, { graphId: "g", input: "hi", threadId: "th_1", projectId: "p" }, { wait: clock.wait, now: clock.now });
     expect(run.status).toBe("done");
@@ -46,9 +48,9 @@ describe("runToCompletion", () => {
 
   it("positive: polls through running states to a terminal one", async () => {
     const rpc = fakeRpc([
-      { id: "run_1", status: "running", error: null, state: null },
-      { id: "run_1", status: "running", error: null, state: null },
-      { id: "run_1", status: "done", error: null, state: { collected: true } },
+      mkRun({ id: "run_1", status: "running" }),
+      mkRun({ id: "run_1", status: "running" }),
+      mkRun({ id: "run_1", status: "done", state: { collected: true } }),
     ]);
     const clock = fakeClock();
     const { run, timedOut } = await runToCompletion(rpc, { graphId: "g", input: "hi", threadId: "th_1", projectId: null }, { wait: clock.wait, now: clock.now, pollMs: 100 });
@@ -58,7 +60,7 @@ describe("runToCompletion", () => {
   });
 
   it("negative: a failed run is reported, not retried further", async () => {
-    const rpc = fakeRpc([{ id: "run_1", status: "failed", error: "node crashed", state: null }]);
+    const rpc = fakeRpc([mkRun({ id: "run_1", status: "failed", error: "node crashed" })]);
     const clock = fakeClock();
     const { run, timedOut } = await runToCompletion(rpc, { graphId: "g", input: "hi", threadId: "th_1", projectId: null }, { wait: clock.wait, now: clock.now });
     expect(run.status).toBe("failed");
@@ -67,7 +69,7 @@ describe("runToCompletion", () => {
   });
 
   it("negative: a run stuck running past the timeout is reported as timed out, run id intact", async () => {
-    const rpc = fakeRpc([{ id: "run_1", status: "running", error: null, state: null }]);
+    const rpc = fakeRpc([mkRun({ id: "run_1", status: "running" })]);
     const clock = fakeClock();
     const { run, timedOut } = await runToCompletion(
       rpc,
@@ -81,7 +83,7 @@ describe("runToCompletion", () => {
 
   it("negative: getRun returning null mid-poll is a failure, not a silent success (the run vanished)", async () => {
     const rpc: Pick<GraphsRpc, "startRun" | "getRun"> = {
-      startRun: async () => ({ id: "run_1", status: "running", error: null, state: null }),
+      startRun: async () => (mkRun({ id: "run_1", status: "running" })),
       getRun: async () => null,
     };
     const clock = fakeClock();
