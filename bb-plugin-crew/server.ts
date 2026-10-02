@@ -22,7 +22,7 @@ import { CrewFileEditError } from "./lib/crewfile";
 import { AddressError } from "./lib/delivery";
 import { ApplyRefused } from "./lib/sync";
 import { createCrewService, DeleteRefused } from "./lib/service";
-import type { Catalog } from "./lib/spec";
+import type { Catalog, SkillsCatalog } from "./lib/spec";
 import { inlineExecution, REASONING_LEVELS, SERVICE_TIERS } from "./lib/spec";
 import { createStore, MERGE_STATES, MESSAGE_STATUSES, MIGRATIONS, WORK_STATES, type MessageRow, type Store } from "./lib/store";
 import { createSdkThreadPort } from "./lib/thread-port";
@@ -542,11 +542,34 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
+  // Skills per project: read at most once a minute, same reasoning as the model catalogue.
+  const skillsCache = new Map<string, { at: number; catalog: SkillsCatalog }>();
+  async function skills(projectId: string): Promise<SkillsCatalog | null> {
+    const cached = skillsCache.get(projectId);
+    if (cached && Date.now() - cached.at < 60_000) return cached.catalog;
+    try {
+      const { skills: rows } = await bb.sdk.skills.list({ projectId, environmentId: null });
+      const names = new Set<string>();
+      for (const row of rows) {
+        names.add(row.name);
+        // BB-user-scoped skills are shown to agents under the "bb-global-skills:" prefix.
+        if (row.scope === "bb-user") names.add(`bb-global-skills:${row.name}`);
+      }
+      const catalog: SkillsCatalog = { names };
+      skillsCache.set(projectId, { at: Date.now(), catalog });
+      return catalog;
+    } catch (error) {
+      bb.log.warn(`Skills catalogue unreadable, check skipped: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
   const publishActivity = debounced(() => bb.realtime.publish(ACTIVITY_CHANGED, { at: Date.now() }));
   const service = createCrewService({
     store,
     port,
     catalog,
+    skills,
     // `outputSchema` is required (d.ts:15920–15925); the port narrows the shapes itself.
     tasks: createTasksRpcPort((method, input) =>
       bb.sdk.plugins.callRpc({ pluginId: "tasks", method, input: input as JsonValue, outputSchema: z.unknown() })),

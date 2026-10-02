@@ -14,7 +14,7 @@ import { createIntegration, createLocalGit, type GitBackend, type RemoteGitFacto
 import { createJournal } from "./journal";
 import { createCrewModels } from "./policy";
 import { createQueue } from "./queue";
-import { serializeCrew, validateCrew, type Catalog, type Problem, type Validation } from "./spec";
+import { serializeCrew, validateCrew, type Catalog, type Problem, type SkillsCatalog, type Validation } from "./spec";
 import type { CrewRow, MessageFilter, MessageRow, Store } from "./store";
 import {
   apply,
@@ -64,6 +64,8 @@ export type ServiceDeps = {
   port: ThreadPort;
   /** Provider catalogue for the unknown-model warning; null skips the check. */
   catalog?: () => Promise<Catalog | null>;
+  /** Known skill names (global, project, BB global) for the unknown-skill warning; null skips the check. */
+  skills?: (projectId: string) => Promise<SkillsCatalog | null>;
   readText?: (path: string) => Promise<string>;
   newId?: () => string;
   newMessageId?: (prefix: "msg" | "ch") => string;
@@ -96,6 +98,7 @@ export function createCrewService(deps: ServiceDeps) {
   };
   const readText = deps.readText ?? ((path: string) => readFile(path, "utf8"));
   const catalog = async () => (deps.catalog ? await deps.catalog().catch(() => null) : null);
+  const skillsCatalog = async (projectId: string) => (deps.skills ? await deps.skills(projectId).catch(() => null) : null);
   const models = createCrewModels(deps.store);
   const store = deps.store;
   const limit = () => readLimit(store, deps.bbLimit ?? null);
@@ -199,8 +202,8 @@ export function createCrewService(deps: ServiceDeps) {
     return deps.store.listMessages({ ...filter, projectId, crewId: crew?.id ?? filter.crewId });
   }
 
-  async function validate(yaml: string, confirmFull = false): Promise<Validation> {
-    return validateCrew(yaml, { catalog: await catalog(), confirmFull });
+  async function validate(projectId: string, yaml: string, confirmFull = false): Promise<Validation> {
+    return validateCrew(yaml, { catalog: await catalog(), skills: await skillsCatalog(projectId), confirmFull });
   }
 
   const service = {
@@ -270,7 +273,7 @@ export function createCrewService(deps: ServiceDeps) {
     },
 
     async plan(projectId: string, yaml: string, options: { fresh?: string[]; confirmFull?: boolean } = {}) {
-      const validation = await validate(yaml, options.confirmFull);
+      const validation = await validate(projectId, yaml, options.confirmFull);
       const items: PlanItem[] = validation.spec ? await plan(ctx, projectId, validation, options) : [];
       const extra = await projectProblems(projectId, validation);
       const crew = validation.spec ? store.findCrew(projectId, validation.spec.name) : null;
@@ -284,7 +287,7 @@ export function createCrewService(deps: ServiceDeps) {
       yaml: string,
       options: { fresh?: string[]; confirmFull?: boolean } = {},
     ): Promise<ApplyOutcome & { validation: Validation; limit: string; remote: string[] }> {
-      const validation = await validate(yaml, options.confirmFull);
+      const validation = await validate(projectId, yaml, options.confirmFull);
       const before = validation.spec ? store.findCrew(projectId, validation.spec.name)?.status ?? null : null;
       const outcome = await apply(ctx, { projectId, yaml, validation, fresh: options.fresh });
       await recordEnvironments(outcome.crew);
@@ -404,7 +407,7 @@ export function createCrewService(deps: ServiceDeps) {
 
     /** Store a crew file without applying it. Invalid files are refused. */
     async save(projectId: string, yaml: string) {
-      const validation = await validate(yaml, true);
+      const validation = await validate(projectId, yaml, true);
       if (!validation.spec || validation.problems.some((problem) => problem.level === "error" && problem.code !== "full-unconfirmed")) {
         return { crew: null, validation };
       }

@@ -84,6 +84,15 @@ describe("configure", () => {
     const { crew, members } = await running(service, port);
     expect(agentInstructions(service, crew, members["dev-impl"]!)).not.toContain("summary");
   });
+
+  it("member skills become a 'Prefer these skills' hint; no skills means no hint", async () => {
+    const { service, port } = setup();
+    const { crew, members } = await running(service, port, trioYaml({ skills: ["memory"] }));
+    expect(agentInstructions(service, crew, members["dev-impl"]!)).toContain("Prefer these skills: memory");
+    const { service: service2, port: port2 } = setup();
+    const { crew: crew2, members: members2 } = await running(service2, port2);
+    expect(agentInstructions(service2, crew2, members2["dev-impl"]!)).not.toContain("Prefer these skills");
+  });
 });
 
 describe("crew tools", () => {

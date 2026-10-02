@@ -228,6 +228,39 @@ describe("crew file validation", () => {
       expect(members.get("dev-owner")!.instructions).toEqual(["crew rules", "group rules"]);
       expect(members.get("orch-lead")!.instructions).toEqual(["crew rules"]);
     });
+
+    it("skills: crew, group and member skills all inherit down, deduplicated", () => {
+      const spec = base();
+      spec.skills = ["memory"];
+      spec.groups[1]!.skills = ["gitlab"];
+      spec.groups[1]!.members[0]!.skills = ["gitlab", "tdd"];
+      const members = new Map(validateCrew(spec).members.map((m) => [m.key, m]));
+      expect(members.get("dev-owner")!.skills).toEqual(["memory", "gitlab", "tdd"]);
+      expect(members.get("dev-check")!.skills).toEqual(["memory", "gitlab"]);
+      expect(members.get("orch-lead")!.skills).toEqual(["memory"]);
+    });
+  });
+
+  describe("skills catalogue", () => {
+    const catalog = { names: new Set(["memory", "gitlab"]) };
+    it("positive: known skill names give no warning", () => {
+      const spec = base();
+      spec.skills = ["memory"];
+      spec.groups[1]!.members[0]!.skills = ["gitlab"];
+      expect(codes(spec, { skills: catalog })).not.toContain("unknown-skill");
+    });
+    it("negative: an unknown skill name is a warning, not an error", () => {
+      const spec = base();
+      spec.groups[1]!.members[0]!.skills = ["no-such-skill"];
+      const problems = validateCrew(spec, { skills: catalog }).problems;
+      expect(problems.map((p) => [p.level, p.code])).toContainEqual(["warning", "unknown-skill"]);
+      expect(hasErrors(problems)).toBe(false);
+    });
+    it("without a catalogue nothing is checked", () => {
+      const spec = base();
+      spec.groups[1]!.members[0]!.skills = ["no-such-skill"];
+      expect(codes(spec)).toEqual([]);
+    });
   });
 
   describe("environment auto", () => {

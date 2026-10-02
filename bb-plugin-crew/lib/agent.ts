@@ -93,7 +93,8 @@ export function agentInstructions(service: CrewService, crew: CrewRow, member: M
     .join("\n");
   const rules = `${messagingRules({ address: member.address, lead: member.lead }, model.policy)}\n\n${workRules(member.lead, isIntegrator(member.config))}`;
   const inherited = (resolvedMember?.instructions ?? []).join("\n\n");
-  const room = INSTRUCTION_LIMIT - head.length - rules.length - 80;
+  const skillsHint = (resolvedMember?.skills ?? []).length > 0 ? `Prefer these skills: ${resolvedMember!.skills.join(", ")}` : "";
+  const room = INSTRUCTION_LIMIT - head.length - rules.length - skillsHint.length - 80;
   let summary = "";
   if (inherited && room > 40) {
     summary =
@@ -101,7 +102,7 @@ export function agentInstructions(service: CrewService, crew: CrewRow, member: M
         ? `Instructions:\n${inherited}`
         : `Instructions (summary, full text via crew_whoami):\n${inherited.slice(0, room - 60).trimEnd()}…`;
   }
-  const text = [head, summary, rules].filter(Boolean).join("\n\n");
+  const text = [head, summary, skillsHint, rules].filter(Boolean).join("\n\n");
   return text.length <= INSTRUCTION_LIMIT ? text : `${text.slice(0, INSTRUCTION_LIMIT - 1)}…`;
 }
 

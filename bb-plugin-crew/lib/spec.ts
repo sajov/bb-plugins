@@ -73,6 +73,7 @@ const groupSchema = z
   .object({
     id: idSchema,
     instructions: z.string().optional(),
+    skills: z.array(z.string().min(1)).default([]),
     provider: z.string().min(1).optional(),
     model: z.string().min(1).optional(),
     permissions: permissionSchema.optional(),
@@ -95,6 +96,7 @@ export const crewSpecSchema = z
     name: idSchema,
     summary: z.string().default(""),
     instructions: z.string().optional(),
+    skills: z.array(z.string().min(1)).default([]),
     messaging: z.enum(["open", "links"]).default("open"),
     permissions: permissionSchema.default("accept-edits"),
     environment: environmentSchema.default({ type: "auto" }),
@@ -209,8 +211,15 @@ export type Catalog = {
   providers: Map<string, Set<string>>;
 };
 
+/** Skill names known here (global, project and BB global skills); absent means "not checked". */
+export type SkillsCatalog = {
+  names: ReadonlySet<string>;
+};
+
 export type ValidateOptions = {
   catalog?: Catalog | null;
+  /** Known skill names for the unknown-skill warning; null skips the check. */
+  skills?: SkillsCatalog | null;
   /** `--confirm-full`: the human has seen that a member runs with `full`. */
   confirmFull?: boolean;
 };
@@ -343,7 +352,8 @@ export function validateCrew(input: string | unknown, options: ValidateOptions =
       instructions: [spec.instructions, group.instructions, member.instructions].filter(
         (text): text is string => typeof text === "string" && text.trim() !== "",
       ),
-      skills: member.skills,
+      // Crew → group → member, most general first, each name kept once.
+      skills: [...new Set([...spec.skills, ...group.skills, ...member.skills])],
       deputy: member.deputy ?? null,
       integrator: member.integrator === true,
       kickoff: member.kickoff ?? spec.kickoff ?? null,
@@ -411,6 +421,17 @@ export function validateCrew(input: string | unknown, options: ValidateOptions =
         warn("unknown-provider", `${member.key}: provider "${member.provider}" is not offered here`);
       } else if (member.model !== null && !models.has(member.model)) {
         warn("unknown-model", `${member.key}: model "${member.model}" is not in the catalogue of "${member.provider}"`);
+      }
+    }
+  }
+
+  const skillsCatalog = options.skills;
+  if (skillsCatalog) {
+    for (const member of members) {
+      for (const name of member.skills) {
+        if (!skillsCatalog.names.has(name)) {
+          warn("unknown-skill", `${member.key}: skill "${name}" is not known here`);
+        }
       }
     }
   }
