@@ -513,7 +513,7 @@ export function registerAgentTools(bb: BbPluginApi, service: CrewService, option
         const role = self.member.config.role ? ` (${String(self.member.config.role)})` : "";
         const context = `Crew: ${self.crew.name}\nMember: ${self.member.key}${role}\n\n${params.input}`;
         try {
-          const { run, timedOut } = await service.graphs.run({ graphId: params.graph, input: context, projectId: self.crew.projectId });
+          const { run, timedOut } = await service.graphs.run({ graphId: params.graph, input: context, threadId: ctx.threadId, projectId: self.crew.projectId });
           if (timedOut) return failure(`Graph run ${run.id} timed out before it finished (still "${run.status}"); check it in Graph Studio.`);
           if (run.status === "failed") return failure(`Graph run ${run.id} failed: ${run.error ?? "unknown error"}`);
           if (run.status === "stopped") return failure(`Graph run ${run.id} was stopped.`);

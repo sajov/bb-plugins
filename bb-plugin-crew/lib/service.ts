@@ -234,7 +234,7 @@ export function createCrewService(deps: ServiceDeps) {
     directory: (projectId: string) => buildDirectory(store, models, projectId),
     graphs: {
       /** Run a graph-studio graph to completion for crew_graph_run (BBP-30). Rejects when no graphsRpc is configured. */
-      run(args: { graphId: string; input: string; projectId: string | null }, options?: RunToCompletionOptions): Promise<RunOutcome> {
+      run(args: { graphId: string; input: string; threadId: string; projectId: string | null }, options?: RunToCompletionOptions): Promise<RunOutcome> {
         if (!deps.graphsRpc) return Promise.reject(new Error("graph-studio is not available here."));
         return runToCompletion(deps.graphsRpc, args, options);
       },

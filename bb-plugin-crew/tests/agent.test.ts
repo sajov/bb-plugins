@@ -30,7 +30,11 @@ async function withHost(options: { confirm?: Confirm; graphsRpc?: GraphsRpc | nu
 function fakeGraphsRpc(run: GraphRun): GraphsRpc {
   return {
     listGraphs: async () => [{ id: "release", name: "Release" }],
-    startRun: async () => run,
+    // Mirrors graph-studio's real startRun, which throws without a parent thread (BBP-30 review fix).
+    startRun: async (args) => {
+      if (!args.threadId) throw new Error("A run needs a parent thread whose environment the workers inherit.");
+      return run;
+    },
     getRun: async (id) => ({ ...run, id }),
   };
 }
@@ -303,12 +307,15 @@ describe("crew_graph_run (BBP-30)", () => {
     expect(called).toBe(false);
   });
 
-  it("positive: a successful run returns its result, with the member context in the input", async () => {
+  it("positive: a successful run returns its result, with the member context and the calling thread in the input/call", async () => {
     let seenInput = "";
+    let seenThreadId = "";
     const rpc: GraphsRpc = {
       listGraphs: async () => [{ id: "release", name: "Release" }],
       startRun: async (args) => {
+        if (!args.threadId) throw new Error("A run needs a parent thread whose environment the workers inherit.");
         seenInput = args.input;
+        seenThreadId = args.threadId;
         return { id: "run_1", status: "done", error: null, state: { collected: ["ok"] } };
       },
       getRun: async (id) => ({ id, status: "done", error: null, state: { collected: ["ok"] } }),
@@ -321,6 +328,7 @@ describe("crew_graph_run (BBP-30)", () => {
     expect(seenInput).toContain("Crew: trio");
     expect(seenInput).toContain("Member: dev-impl");
     expect(seenInput).toContain("ship it");
+    expect(seenThreadId).toBe(env.threads["dev-impl"]);
   });
 
   it("negative: a failed run is a tool error with the run's error", async () => {
@@ -337,7 +345,10 @@ describe("crew_graph_run (BBP-30)", () => {
   it("negative: a vanished run (getRun null mid-poll) is a tool error, not a false 'done'", async () => {
     const rpc: GraphsRpc = {
       listGraphs: async () => [{ id: "release", name: "Release" }],
-      startRun: async () => ({ id: "run_1", status: "running", error: null, state: null }),
+      startRun: async (args) => {
+        if (!args.threadId) throw new Error("A run needs a parent thread whose environment the workers inherit.");
+        return { id: "run_1", status: "running", error: null, state: null };
+      },
       getRun: async () => null,
     };
     const env = await withHost({ yaml: graphYaml(), graphsRpc: rpc });

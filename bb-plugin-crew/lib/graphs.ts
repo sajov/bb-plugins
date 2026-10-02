@@ -17,7 +17,8 @@ export type GraphRun = {
 
 export type GraphsRpc = {
   listGraphs(): Promise<GraphSummary[]>;
-  startRun(args: { graphId: string; input: string; projectId: string | null }): Promise<GraphRun>;
+  /** `threadId` is required: graph-studio's startRun rejects a run without a parent thread, whose environment the workers inherit. */
+  startRun(args: { graphId: string; input: string; threadId: string; projectId: string | null }): Promise<GraphRun>;
   getRun(id: string): Promise<GraphRun | null>;
 };
 
@@ -33,7 +34,7 @@ export function createGraphsRpc(callRpc: (method: string, input: unknown) => Pro
       return [...result.graphs, ...result.templates];
     },
     async startRun(args) {
-      const result = (await callRpc("startRun", { graphId: args.graphId, input: args.input, threadId: null, projectId: args.projectId })) as { run: unknown };
+      const result = (await callRpc("startRun", { graphId: args.graphId, input: args.input, threadId: args.threadId, projectId: args.projectId })) as { run: unknown };
       return toRun(result.run);
     },
     async getRun(id) {
@@ -59,7 +60,7 @@ export type RunOutcome = { run: GraphRun; timedOut: boolean };
 /** Start a run and poll until it reaches a terminal status or the timeout passes. */
 export async function runToCompletion(
   rpc: Pick<GraphsRpc, "startRun" | "getRun">,
-  args: { graphId: string; input: string; projectId: string | null },
+  args: { graphId: string; input: string; threadId: string; projectId: string | null },
   options: RunToCompletionOptions = {},
 ): Promise<RunOutcome> {
   const pollMs = options.pollMs ?? 500;
