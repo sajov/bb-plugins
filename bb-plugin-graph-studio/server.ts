@@ -624,6 +624,7 @@ export default function graphStudio(bb: BbPluginApi) {
    * forty times to say so.
    */
   async function pollActivity(runId: string) {
+    if (disposed) return; // the database may already be closed
     const rows = store.listNodeRuns(runId);
     let changed = false;
     // Attempts that have finished since the last poll: their line described
@@ -2345,6 +2346,8 @@ export default function graphStudio(bb: BbPluginApi) {
   // runs over at once instead of after the expiry.
   bb.onDispose(() => {
     disposed = true;
+    for (const timer of watchers.values()) clearInterval(timer);
+    watchers.clear();
     for (const runId of [...driving.keys()]) {
       abandon(runId, "the plugin is reloading");
       unclaim(runId);
