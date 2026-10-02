@@ -4,7 +4,8 @@
 // Sources are BB facts only — thread status and read markers from
 // `threads.get`, open interactions from `threads.interactions.list`, and the
 // plugin's own `messages` rows. Nothing is read off the screen.
-import type { CrewRow, MemberRow, MessageRow, Store } from "./store";
+import type { GraphsRpc } from "./graphs";
+import { OPEN_GRAPH_RUN_STATUSES, type CrewRow, type MemberRow, type MessageRow, type Store } from "./store";
 import type { ContextUsage, OpenInteraction, ThreadInfo, ThreadPort } from "./thread-port";
 
 export type ThreadAxis = "present" | "archived" | "missing";
@@ -18,7 +19,8 @@ export type NeedsReason =
   | "merge-request"
   | "merge-conflict"
   | "follow-up"
-  | "context";
+  | "context"
+  | "graph-approval";
 export type Diagnosis = "On hold" | "Unread result" | "Stopped: loop" | "Idle with open work" | "Handover suggested" | "Throttled";
 
 /** §3.9.4: leads are relieved earlier than members, since all cross-crew traffic runs through them. */
@@ -45,6 +47,8 @@ export type ActivityInput = {
   throttled?: number;
   /** BBP-31: this member's graph_runs rows, newest first. */
   graphRuns?: readonly { runId: string; graphId: string; status: string }[];
+  /** BBP-32: a run of this member's that sits on a human node, waiting for an answer. */
+  graphQuestion?: { runId: string; graphId: string; nodeId: string; question: string } | null;
 };
 
 export type Derived = {
@@ -60,6 +64,8 @@ export type Derived = {
   context: number | null;
   /** BBP-31: this member's graph_runs rows, newest first. */
   graphRuns: readonly { runId: string; graphId: string; status: string }[];
+  /** BBP-32: a run of this member's that sits on a human node, waiting for an answer. */
+  graphQuestion: { runId: string; graphId: string; nodeId: string; question: string } | null;
 };
 
 const WORKING = new Set(["active", "pending", "starting", "stopping"]);
@@ -82,6 +88,7 @@ export function deriveActivity(input: ActivityInput): Derived {
   if ((input.escalated ?? 0) > 0) needsYou.push("follow-up");
   const context = input.context && input.context.contextWindow > 0 ? input.context.usedTokens / input.context.contextWindow : null;
   if (context !== null && input.lead && context >= CONTEXT_THRESHOLDS.leadNeedsYou) needsYou.push("context");
+  if (input.graphQuestion) needsYou.push("graph-approval");
 
   let activity: ActivityState;
   if (!live) activity = "unknown";
@@ -107,9 +114,21 @@ export function deriveActivity(input: ActivityInput): Derived {
   const question = input.humanQuestion
     ? `${input.humanQuestion.subject}: ${input.humanQuestion.body}`.slice(0, 2000)
     : (interactions[0]?.title ??
+      (input.graphQuestion ? `Graph ${input.graphQuestion.graphId}: ${input.graphQuestion.question}` : null) ??
       (input.mergeRequest ? input.mergeRequest : null) ??
       (conflict ? `Rebase conflict: ${conflict.detail ?? "see the member thread"}` : null));
-  return { thread: axis, activity, needsYou, question, held: input.held, diagnoses, openWork, context, graphRuns: input.graphRuns ?? [] };
+  return {
+    thread: axis,
+    activity,
+    needsYou,
+    question,
+    held: input.held,
+    diagnoses,
+    openWork,
+    context,
+    graphRuns: input.graphRuns ?? [],
+    graphQuestion: input.graphQuestion ?? null,
+  };
 }
 
 export type RowStatus = { icon: string; label: string; tone: "default" | "error" | "running" | "success" };
@@ -160,9 +179,27 @@ export function createActivityTracker(deps: {
   /** E3 facts owned by other modules (work items, merges, follow-ups). */
   extras?: ActivityExtras;
   now?: () => number;
+  /** BBP-32: reads a waiting run's live pendingQuestion; null skips the graph-approval check entirely. */
+  graphsRpc?: GraphsRpc | null;
 }) {
   const { store, port } = deps;
   const cache = new Map<string, ActivityView>();
+  const OPEN_STATUSES: ReadonlySet<string> = new Set(OPEN_GRAPH_RUN_STATUSES);
+
+  /** The first of this member's open runs that is waiting on a human node, with its live question (BBP-32). */
+  async function graphQuestionFor(member: MemberRow, graphRuns: readonly { runId: string; graphId: string; status: string }[]) {
+    if (!deps.graphsRpc) return null;
+    for (const row of graphRuns) {
+      if (!OPEN_STATUSES.has(row.status)) continue;
+      const run = await deps.graphsRpc.getRun(row.runId).catch(() => null);
+      if (!run) continue;
+      if (run.status !== row.status) store.updateGraphRunStatus(row.runId, run.status);
+      if (run.status === "waiting-human" && run.pendingQuestion) {
+        return { runId: row.runId, graphId: row.graphId, nodeId: run.pendingQuestion.nodeId, question: run.pendingQuestion.question };
+      }
+    }
+    return null;
+  }
 
   async function compute(crew: CrewRow, member: MemberRow): Promise<ActivityView> {
     const binding = store.currentBinding(member.id);
@@ -175,6 +212,7 @@ export function createActivityTracker(deps: {
     const held = store.countByMember(member.id, "to", "on_hold");
     const context = thread && !thread.archived ? await port.contextUsage(thread.id).catch(() => null) : null;
     if (thread && !thread.archived) store.markBusy(member.id, WORKING.has(thread.status), deps.now?.() ?? Date.now());
+    const graphRuns = store.listGraphRuns(member.id).map((row) => ({ runId: row.runId, graphId: row.graphId, status: row.status }));
     const derived = deriveActivity({
       thread,
       interactions,
@@ -186,7 +224,8 @@ export function createActivityTracker(deps: {
       needs: store.listNeeds(member.id),
       throttled: store.countByMember(member.id, "to", "throttled"),
       context,
-      graphRuns: store.listGraphRuns(member.id).map((row) => ({ runId: row.runId, graphId: row.graphId, status: row.status })),
+      graphRuns,
+      graphQuestion: await graphQuestionFor(member, graphRuns),
       ...deps.extras?.(crew, member),
     });
     return {

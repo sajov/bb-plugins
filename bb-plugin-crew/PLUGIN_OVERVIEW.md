@@ -12,7 +12,18 @@ apply again: only the difference is applied, and `bb crew plan` shows it first.
 Members message each other by address, share a channel and a work queue, and
 hand off work with a subject such as a task key. Writing members get their own
 worktree; readers share the crew's. A member that waits for you shows up in
-**Needs you** with its question.
+**Needs you** with its question — including a Graph Studio run of theirs that
+is sitting on a human node.
+
+## Running a Graph Studio graph from a member
+
+`graphs:` on a member (inherited from the crew/group, like `instructions` and
+the new `skills:`) names which graphs it may run; `crew_graph_run(graph,
+input)` starts one and blocks until it finishes, carrying the member's
+address, key and role into the run's input. Every run is linked back to its
+member and shows as a live sub-row on the Topology tab; `bb crew stop`
+cancels open runs and `bb crew delete --threads delete` also removes their
+worker threads.
 
 ## Several crews in one project
 
@@ -51,7 +62,8 @@ bb crew stop trio
 
 Agents inside a crew use the same functions as tools, for example `crew_send`,
 `crew_peers` and `crew_directory`. Graph Studio can run a step on a crew member
-through its `member` node.
+through its `member` node, and a member with `graphs:` set can run a Graph
+Studio graph itself with `crew_graph_run`.
 
 ## Requirements and limits
 

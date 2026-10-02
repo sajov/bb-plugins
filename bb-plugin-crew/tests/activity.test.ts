@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { deriveActivity, rowStatusFor, type ActivityInput } from "../lib/activity";
+import type { GraphRun, GraphsRpc } from "../lib/graphs";
 import type { ThreadInfo } from "../lib/thread-port";
 import { running, setup } from "./helpers";
+
+const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({
+  error: null,
+  state: null,
+  childThreadIds: [],
+  pendingQuestion: null,
+  ...overrides,
+});
 
 const thread = (overrides: Partial<ThreadInfo> = {}): ThreadInfo => ({
   id: "th_1",
@@ -119,6 +128,101 @@ describe("activity tracker", () => {
     const view = (await service.activity.refreshAll()).find((v) => v.key === "dev-impl")!;
     expect(view).toMatchObject({ held: 1, activity: "needs-you", needsYou: ["approval"] });
     expect(view.diagnoses).toContain("On hold");
+  });
+});
+
+describe("graph-approval on Needs you (BBP-32)", () => {
+  it("positive: deriveActivity adds graph-approval and the question text", () => {
+    const derived = deriveActivity(input({ graphQuestion: { runId: "run_1", graphId: "release", nodeId: "n1", question: "Ship it?" } }));
+    expect(derived.needsYou).toContain("graph-approval");
+    expect(derived.question).toContain("Ship it?");
+  });
+
+  it("positive: a run waiting on a human node shows up with its live question", async () => {
+    const { service, port, store } = setup();
+    const { crew, members } = await running(service, port);
+    store.insertGraphRun({ runId: "run_1", crewId: crew.id, memberId: members["dev-impl"]!.id, graphId: "release", status: "running" });
+    const rpc: GraphsRpc = {
+      listGraphs: async () => [],
+      startRun: async () => mkRun({ id: "x", status: "running" }),
+      getRun: async (id) => mkRun({ id, status: "waiting-human", pendingQuestion: { nodeId: "n1", label: "Approve", question: "Ship it?" } }),
+      stopRun: async (id) => mkRun({ id, status: "stopped" }),
+    };
+    const { createActivityTracker } = await import("../lib/activity");
+    const tracker = createActivityTracker({ store, port, graphsRpc: rpc });
+    const view = (await tracker.refreshAll()).find((v) => v.key === "dev-impl")!;
+    expect(view.needsYou).toContain("graph-approval");
+    expect(view.question).toContain("Ship it?");
+    expect(view.graphQuestion).toEqual({ runId: "run_1", graphId: "release", nodeId: "n1", question: "Ship it?" });
+    // The live status is also folded back into the stored row.
+    expect(store.getGraphRun("run_1")!.status).toBe("waiting-human");
+  });
+
+  it("negative: once the run continues past the human node, the entry is gone", async () => {
+    const { service, port, store } = setup();
+    const { crew, members } = await running(service, port);
+    store.insertGraphRun({ runId: "run_1", crewId: crew.id, memberId: members["dev-impl"]!.id, graphId: "release", status: "waiting-human" });
+    const rpc: GraphsRpc = {
+      listGraphs: async () => [],
+      startRun: async () => mkRun({ id: "x", status: "running" }),
+      getRun: async (id) => mkRun({ id, status: "running" }),
+      stopRun: async (id) => mkRun({ id, status: "stopped" }),
+    };
+    const { createActivityTracker } = await import("../lib/activity");
+    const tracker = createActivityTracker({ store, port, graphsRpc: rpc });
+    const view = (await tracker.refreshAll()).find((v) => v.key === "dev-impl")!;
+    expect(view.needsYou).not.toContain("graph-approval");
+    expect(view.graphQuestion).toBeNull();
+  });
+
+  it("negative: a finished run never asks graph-studio again and is not an entry", async () => {
+    const { service, port, store } = setup();
+    const { crew, members } = await running(service, port);
+    store.insertGraphRun({ runId: "run_1", crewId: crew.id, memberId: members["dev-impl"]!.id, graphId: "release", status: "done" });
+    let calls = 0;
+    const rpc: GraphsRpc = {
+      listGraphs: async () => [],
+      startRun: async () => mkRun({ id: "x", status: "running" }),
+      getRun: async (id) => {
+        calls += 1;
+        return mkRun({ id, status: "waiting-human", pendingQuestion: { nodeId: "n1", label: "x", question: "still asks?" } });
+      },
+      stopRun: async (id) => mkRun({ id, status: "stopped" }),
+    };
+    const { createActivityTracker } = await import("../lib/activity");
+    const tracker = createActivityTracker({ store, port, graphsRpc: rpc });
+    const view = (await tracker.refreshAll()).find((v) => v.key === "dev-impl")!;
+    expect(view.needsYou).not.toContain("graph-approval");
+    expect(calls).toBe(0);
+  });
+
+  it("negative: no runs at all means no entry and no RPC calls", async () => {
+    let calls = 0;
+    const rpc: GraphsRpc = {
+      listGraphs: async () => [],
+      startRun: async () => mkRun({ id: "x", status: "running" }),
+      getRun: async (id) => {
+        calls += 1;
+        return mkRun({ id, status: "waiting-human" });
+      },
+      stopRun: async (id) => mkRun({ id, status: "stopped" }),
+    };
+    const { service, port, store } = setup();
+    await running(service, port);
+    const { createActivityTracker } = await import("../lib/activity");
+    const tracker = createActivityTracker({ store, port, graphsRpc: rpc });
+    const view = (await tracker.refreshAll()).find((v) => v.key === "dev-impl")!;
+    expect(view.needsYou).not.toContain("graph-approval");
+    expect(view.graphRuns).toEqual([]);
+    expect(calls).toBe(0);
+  });
+
+  it("negative: without a configured graphsRpc, graph-approval never fires even for a waiting run", async () => {
+    const { service, port, store } = setup();
+    const { crew, members } = await running(service, port);
+    store.insertGraphRun({ runId: "run_1", crewId: crew.id, memberId: members["dev-impl"]!.id, graphId: "release", status: "waiting-human" });
+    const view = (await service.activity.refreshAll()).find((v) => v.key === "dev-impl")!;
+    expect(view.needsYou).not.toContain("graph-approval");
   });
 });
 

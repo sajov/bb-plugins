@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { GraphRun, GraphsRpc } from "../lib/graphs";
 import { PROJECT, running, setup, trioYaml } from "./helpers";
 
-const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], ...overrides });
+const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], pendingQuestion: null, ...overrides });
 
 describe("store: graph_runs", () => {
   it("positive: insert, get, update status, list by member and by crew", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runToCompletion, type GraphRun, type GraphsRpc } from "../lib/graphs";
 
-const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], ...overrides });
+const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], pendingQuestion: null, ...overrides });
 
 function fakeClock(start = 0) {
   let now = start;

@@ -411,7 +411,7 @@ export type GraphRunRow = {
   startedAt: number;
   updatedAt: number;
 };
-const OPEN_GRAPH_RUN_STATUSES = ["running", "stopping", "waiting-human"] as const;
+export const OPEN_GRAPH_RUN_STATUSES = ["running", "stopping", "waiting-human"] as const;
 
 export type MessageFilter = {
   projectId?: string;

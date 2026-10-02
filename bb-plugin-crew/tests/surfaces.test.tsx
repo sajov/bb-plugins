@@ -42,6 +42,7 @@ const view = (overrides: Partial<ActivityDto>): ActivityDto => ({
   openWork: 0,
   context: null,
   graphRuns: [],
+  graphQuestion: null,
   ...overrides,
 });
 const members = [member({ key: "orch-lead", groupId: "orch", address: "orch-lead@trio", lead: true, threadId: "th_1" }), member({})];

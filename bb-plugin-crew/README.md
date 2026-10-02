@@ -60,6 +60,31 @@ links:
 Provider and model always sit on the member itself. Writing members get their
 own worktree; readers share the crew's.
 
+`skills:` and `graphs:` are optional on crew, group and member, and inherit
+the same way `instructions` does (crew → group → member, each name kept
+once). `skills:` names skills to prefer, resolved against `~/.bb/skills`,
+`~/.bb/skills-generated` and the project's own `.bb/skills`; an unknown name
+only warns. `graphs:` names Graph Studio graphs the member may run with
+`crew_graph_run`; an unknown graph id only warns too — nothing is installed
+or validated beyond the name.
+
+## Running a Graph Studio graph from a member
+
+A member whose `graphs:` list is non-empty gets `crew_graph_run(graph, input)`:
+it starts the named graph on Graph Studio, blocks until the run is done,
+failed, stopped, or times out, and returns the result with the run id. The
+member's address, key and role go into the run's input explicitly; the graph
+never sees the member's thread.
+
+Every run is linked back to the member and crew that started it (durably, so
+it survives a restart): the Topology tab shows it as a sub-row under the
+member with its live status, and **Needs you** gets an entry with reason
+`graph-approval` and the waiting human node's question while a run sits on one
+— gone again once the run continues or ends. `bb crew stop` cancels a crew's
+open runs; `bb crew delete --threads delete` also deletes their worker
+threads, since Graph Studio's own threads are not BB children of the
+member's thread.
+
 ## Usage
 
 ```sh

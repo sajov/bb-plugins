@@ -451,6 +451,7 @@ const REASON_TITLE: Record<string, string> = {
   "merge-conflict": "Merge conflict",
   "follow-up": "Work item overdue",
   context: "Context nearly full",
+  "graph-approval": "Graph run waits for you",
 };
 const REASON_TEXT: Record<string, string> = {
   approval: "The thread waits for you to allow a tool call.",
@@ -462,6 +463,7 @@ const REASON_TEXT: Record<string, string> = {
   "merge-conflict": "The branch no longer merges cleanly.",
   "follow-up": "An open work item reached its last follow-up.",
   context: "Hand over to a fresh thread before it runs out.",
+  "graph-approval": "A human node is waiting on an answer. Open Graph Studio to answer it.",
 };
 
 export type MemberAction = "open" | "handover" | "reset-clear" | "reset-new" | "detach";

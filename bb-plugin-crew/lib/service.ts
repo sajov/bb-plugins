@@ -143,6 +143,7 @@ export function createCrewService(deps: ServiceDeps) {
     port: deps.port,
     onChange: deps.onActivity,
     now: deps.now,
+    graphsRpc: deps.graphsRpc,
     extras: (crew, member) => {
       const open = member.lead ? integration.awaitingHuman(crew.id)[0] : undefined;
       return {

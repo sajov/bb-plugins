@@ -27,7 +27,7 @@ async function withHost(options: { confirm?: Confirm; graphsRpc?: GraphsRpc | nu
   return { ...env, ...crew, harness, meta };
 }
 
-const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], ...overrides });
+const mkRun = (overrides: Partial<GraphRun> & Pick<GraphRun, "id" | "status">): GraphRun => ({ error: null, state: null, childThreadIds: [], pendingQuestion: null, ...overrides });
 
 function fakeGraphsRpc(run: GraphRun): GraphsRpc {
   return {

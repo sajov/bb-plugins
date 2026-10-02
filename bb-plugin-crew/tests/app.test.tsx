@@ -40,6 +40,7 @@ const view = (overrides: Partial<ActivityDto>): ActivityDto => ({
   openWork: 0,
   context: null,
   graphRuns: [],
+  graphQuestion: null,
   ...overrides,
 });
 

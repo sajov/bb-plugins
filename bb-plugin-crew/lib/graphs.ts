@@ -15,6 +15,8 @@ export type GraphRun = {
   state: unknown;
   /** Worker thread ids of its member nodes (`NodeRunDto.childThreadId`), for BBP-31's delete cleanup. */
   childThreadIds: string[];
+  /** Set while status is "waiting-human" (BBP-32); graph-studio's own `RunDto.pendingQuestion`. */
+  pendingQuestion: { nodeId: string; label: string; question: string } | null;
 };
 
 export type GraphsRpc = {
@@ -29,13 +31,21 @@ export type GraphsRpc = {
 /** `bb.sdk.plugins.callRpc({ pluginId: "graph-studio", ... })`, wrapped the way `createTasksRpcPort` wraps the tasks plugin. */
 export function createGraphsRpc(callRpc: (method: string, input: unknown) => Promise<unknown>): GraphsRpc {
   const toRun = (run: unknown): GraphRun => {
-    const r = run as { id: string; status: RunStatus; error: string | null; state?: unknown; nodeRuns?: { childThreadId: string | null }[] };
+    const r = run as {
+      id: string;
+      status: RunStatus;
+      error: string | null;
+      state?: unknown;
+      nodeRuns?: { childThreadId: string | null }[];
+      pendingQuestion?: { nodeId: string; label: string; question: string } | null;
+    };
     return {
       id: r.id,
       status: r.status,
       error: r.error,
       state: r.state ?? null,
       childThreadIds: (r.nodeRuns ?? []).map((node) => node.childThreadId).filter((id): id is string => typeof id === "string"),
+      pendingQuestion: r.pendingQuestion ?? null,
     };
   };
   return {
