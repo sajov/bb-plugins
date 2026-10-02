@@ -263,6 +263,38 @@ describe("crew file validation", () => {
     });
   });
 
+  describe("graphs (BBP-30)", () => {
+    it("inherit crew → group → member, deduplicated", () => {
+      const spec = base();
+      spec.graphs = ["onboarding"];
+      spec.groups[1]!.graphs = ["release"];
+      spec.groups[1]!.members[0]!.graphs = ["release", "triage"];
+      const members = new Map(validateCrew(spec).members.map((m) => [m.key, m]));
+      expect(members.get("dev-owner")!.graphs).toEqual(["onboarding", "release", "triage"]);
+      expect(members.get("dev-check")!.graphs).toEqual(["onboarding", "release"]);
+      expect(members.get("orch-lead")!.graphs).toEqual(["onboarding"]);
+    });
+
+    it("positive: a known graph id gives no warning", () => {
+      const spec = base();
+      spec.groups[1]!.members[0]!.graphs = ["release"];
+      const catalog = { names: new Set(["release"]) };
+      expect(codes(spec, { graphs: catalog })).not.toContain("unknown-graph");
+    });
+    it("negative: an unknown graph id is a warning, not an error", () => {
+      const spec = base();
+      spec.groups[1]!.members[0]!.graphs = ["no-such-graph"];
+      const problems = validateCrew(spec, { graphs: { names: new Set(["release"]) } }).problems;
+      expect(problems.map((p) => [p.level, p.code])).toContainEqual(["warning", "unknown-graph"]);
+      expect(hasErrors(problems)).toBe(false);
+    });
+    it("without a catalogue nothing is checked", () => {
+      const spec = base();
+      spec.groups[1]!.members[0]!.graphs = ["no-such-graph"];
+      expect(codes(spec)).toEqual([]);
+    });
+  });
+
   describe("environment auto", () => {
     it("writer gets its own worktree, reader shares the crew environment", () => {
       const members = new Map(validateCrew(base()).members.map((m) => [m.key, m]));

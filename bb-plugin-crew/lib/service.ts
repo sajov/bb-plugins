@@ -10,11 +10,12 @@ import { createLifecycle } from "./lifecycle";
 import { createDelivery, type Sender } from "./delivery";
 import { createDependencies, type TasksPort } from "./dependencies";
 import { buildDirectory, formatDirectory } from "./directory";
+import { type GraphsRpc, runToCompletion, type RunOutcome, type RunToCompletionOptions } from "./graphs";
 import { createIntegration, createLocalGit, type GitBackend, type RemoteGitFactory } from "./integration";
 import { createJournal } from "./journal";
 import { createCrewModels } from "./policy";
 import { createQueue } from "./queue";
-import { serializeCrew, validateCrew, type Catalog, type Problem, type SkillsCatalog, type Validation } from "./spec";
+import { serializeCrew, validateCrew, type Catalog, type GraphsCatalog, type Problem, type SkillsCatalog, type Validation } from "./spec";
 import type { CrewRow, MessageFilter, MessageRow, Store } from "./store";
 import {
   apply,
@@ -66,6 +67,8 @@ export type ServiceDeps = {
   catalog?: () => Promise<Catalog | null>;
   /** Known skill names (global, project, BB global) for the unknown-skill warning; null skips the check. */
   skills?: (projectId: string) => Promise<SkillsCatalog | null>;
+  /** Graph Studio's RPC bridge (BBP-30) for the unknown-graph warning and crew_graph_run; null disables both. */
+  graphsRpc?: GraphsRpc | null;
   readText?: (path: string) => Promise<string>;
   newId?: () => string;
   newMessageId?: (prefix: "msg" | "ch") => string;
@@ -99,6 +102,15 @@ export function createCrewService(deps: ServiceDeps) {
   const readText = deps.readText ?? ((path: string) => readFile(path, "utf8"));
   const catalog = async () => (deps.catalog ? await deps.catalog().catch(() => null) : null);
   const skillsCatalog = async (projectId: string) => (deps.skills ? await deps.skills(projectId).catch(() => null) : null);
+  const graphsCatalog = async (): Promise<GraphsCatalog | null> => {
+    if (!deps.graphsRpc) return null;
+    try {
+      const list = await deps.graphsRpc.listGraphs();
+      return { names: new Set(list.map((graph) => graph.id)) };
+    } catch {
+      return null;
+    }
+  };
   const models = createCrewModels(deps.store);
   const store = deps.store;
   const limit = () => readLimit(store, deps.bbLimit ?? null);
@@ -203,7 +215,7 @@ export function createCrewService(deps: ServiceDeps) {
   }
 
   async function validate(projectId: string, yaml: string, confirmFull = false): Promise<Validation> {
-    return validateCrew(yaml, { catalog: await catalog(), skills: await skillsCatalog(projectId), confirmFull });
+    return validateCrew(yaml, { catalog: await catalog(), skills: await skillsCatalog(projectId), graphs: await graphsCatalog(), confirmFull });
   }
 
   const service = {
@@ -220,6 +232,13 @@ export function createCrewService(deps: ServiceDeps) {
     log,
     limit,
     directory: (projectId: string) => buildDirectory(store, models, projectId),
+    graphs: {
+      /** Run a graph-studio graph to completion for crew_graph_run (BBP-30). Rejects when no graphsRpc is configured. */
+      run(args: { graphId: string; input: string; projectId: string | null }, options?: RunToCompletionOptions): Promise<RunOutcome> {
+        if (!deps.graphsRpc) return Promise.reject(new Error("graph-studio is not available here."));
+        return runToCompletion(deps.graphsRpc, args, options);
+      },
+    },
     /** One follow-up sweep (schedule: every minute). */
     async followUps() {
       const fired = await queue.followUps();

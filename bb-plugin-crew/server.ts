@@ -21,6 +21,7 @@ import { openLayout } from "./lib/layout";
 import { runCli, CLI_COMMANDS, type CliContext } from "./lib/cli";
 import { CrewFileEditError } from "./lib/crewfile";
 import { AddressError } from "./lib/delivery";
+import { createGraphsRpc } from "./lib/graphs";
 import { resolveSkillsCatalog } from "./lib/skills";
 import { ApplyRefused } from "./lib/sync";
 import { createCrewService, DeleteRefused } from "./lib/service";
@@ -578,6 +579,8 @@ export default async function plugin(bb: BbPluginApi) {
     // `outputSchema` is required (d.ts:15920–15925); the port narrows the shapes itself.
     tasks: createTasksRpcPort((method, input) =>
       bb.sdk.plugins.callRpc({ pluginId: "tasks", method, input: input as JsonValue, outputSchema: z.unknown() })),
+    graphsRpc: createGraphsRpc((method, input) =>
+      bb.sdk.plugins.callRpc({ pluginId: "graph-studio", method, input: input as JsonValue, outputSchema: z.unknown() })),
     bbLimit: createBbLimit((text) => bb.log.warn(text)),
     onActivity: publishActivity,
     onMessages: () => {
