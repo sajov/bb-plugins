@@ -428,20 +428,22 @@ describe("Project overview (E3)", () => {
     slot.lifecycle.unmount();
   });
 
-  it("stopped crews of the project are cards marked stopped and counted; other projects' crews are listed apart, not in Crews", async () => {
+  it("stopped crews of the project are cards marked stopped and counted; other projects sit behind the project switch, not in Crews", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const halted = { ...crew, id: "p1:halted", name: "halted", status: "stopped" as const };
-    const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15", status: "stopped" as const };
+    const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15", status: "stopped" as const, projectName: "Graph Studio" };
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
       rpc: backend({
-        listCrews: () => ({ crews: [crew, halted, foreign] }),
+        listCrews: () => ({ crews: [{ ...crew, projectName: "BB Plugins" }, halted, foreign] }),
         projectOverview: () => overview({ crews: [card({}), card({ name: "halted", status: "stopped" })] }),
       }),
     });
     const here = await slot.findByRole("list", { name: "Crews" });
     expect(within(here).getAllByRole("button").map((b) => b.textContent)).toEqual(["trio", "halted"]);
-    const other = slot.getByRole("list", { name: "Crews in other projects" });
-    expect(within(other).getAllByRole("button").map((b) => b.textContent)).toEqual(["gs15"]);
+    // negative: no second row of chips for the rest
+    expect(slot.queryByText("Other projects")).toBeNull();
+    const project = slot.getByLabelText("Project") as HTMLSelectElement;
+    expect(Array.from(project.options).map((o) => o.textContent)).toEqual(["BB Plugins (2)", "Graph Studio (1)"]);
     expect(slot.container.querySelector("[data-crew-count]")!.textContent).toBe("2 crews · 1 stopped");
     const stoppedCard = await waitFor(() => {
       const found = slot.container.querySelector('[data-crew-card="halted"]');
@@ -455,11 +457,42 @@ describe("Project overview (E3)", () => {
     slot.lifecycle.unmount();
   });
 
-  it("negative: with one project and no stopped crew there is no other-projects list and no stopped count", async () => {
+  it("the project switch says how many need you per project; negative: a project without any says nothing", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15" };
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
+      rpc: backend({ listCrews: () => ({ crews: [crew, foreign] }), rowStatuses: () => ({ rows: [], needsYou: 3, byProject: { p2: 3 } }) }),
+    });
+    await slot.findByRole("list", { name: "Crews" });
+    await waitFor(() => {
+      const labels = Array.from((slot.getByLabelText("Project") as HTMLSelectElement).options).map((o) => o.textContent);
+      expect(labels).toEqual(["p1 (1)", "p2 (1) · 3 need you"]);
+    });
+    slot.lifecycle.unmount();
+  });
+
+  it("switching the project shows that project's crews and asks for its overview", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const asked: unknown[] = [];
+    const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15" };
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
+      rpc: backend({
+        listCrews: () => ({ crews: [crew, foreign] }),
+        projectOverview: (input: never) => (asked.push(input), overview({})),
+      }),
+    });
+    await slot.findByRole("list", { name: "Crews" });
+    fireEvent.change(slot.getByLabelText("Project"), { target: { value: "p2" } });
+    await waitFor(() => expect(within(slot.getByRole("list", { name: "Crews" })).getAllByRole("button").map((b) => b.textContent)).toEqual(["gs15"]));
+    await waitFor(() => expect(asked).toContainEqual({ projectId: "p2" }));
+    slot.lifecycle.unmount();
+  });
+
+  it("negative: with one project and no stopped crew there is no project switch and no stopped count", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend() });
     await slot.findByRole("list", { name: "Crews" });
-    expect(slot.queryByRole("list", { name: "Crews in other projects" })).toBeNull();
+    expect(slot.queryByLabelText("Project")).toBeNull();
     expect(slot.container.querySelector("[data-crew-count]")!.textContent).toBe("1 crews");
     await waitFor(() => expect(slot.container.querySelector("[data-crew-card]")).not.toBeNull());
     expect(slot.container.querySelector("[data-card-status]")).toBeNull();

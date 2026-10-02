@@ -134,6 +134,16 @@ export type ActivityView = Derived & {
 export type ActivityTracker = ReturnType<typeof createActivityTracker>;
 
 /**
+ * The views that still belong to a member with a thread. The tracker's cache
+ * keeps views of members that were removed, replaced or whose crew was
+ * deleted; counted, they made the panel header say 4 where the crew's card
+ * said 3.
+ */
+export function liveViews<V extends { memberRow: string; threadId: string | null }>(views: readonly V[], memberIds: ReadonlySet<string>): V[] {
+  return views.filter((view) => view.threadId !== null && memberIds.has(view.memberRow));
+}
+
+/**
  * Keeps the derived view per member and says when it changed, so the server
  * publishes only real changes to the frontend.
  */
