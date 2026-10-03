@@ -549,8 +549,8 @@ export default async function plugin(bb: BbPluginApi) {
     }
   }
 
-  // Skills per project: ~/.bb/skills, ~/.bb/skills-generated and the project's
-  // own .bb/skills; read at most once a minute, same reasoning as the model catalogue.
+  // Skills per project: ~/.bb/skills, ~/.bb/skills-generated, ~/.claude/skills and the project's
+  // own .bb/skills and .claude/skills; read at most once a minute, same reasoning as the model catalogue.
   const skillsCache = new Map<string, { at: number; catalog: SkillsCatalog }>();
   async function projectPath(projectId: string): Promise<string | null> {
     try {

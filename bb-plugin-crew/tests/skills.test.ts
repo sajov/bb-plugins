@@ -42,6 +42,21 @@ describe("resolveSkillsCatalog", () => {
     expect(catalog.names.has("gitlab")).toBe(true);
   });
 
+  it("positive: finds Claude Code skills globally and in the project", async () => {
+    const fs = fakeFs({
+      "/home/.claude/skills/tdd/SKILL.md": frontmatter("tdd"),
+      "/repo/.claude/skills/repo-only/SKILL.md": frontmatter("repo-only"),
+    });
+    const catalog = await resolveSkillsCatalog({ homeDir: "/home", projectPath: "/repo" }, fs);
+    expect([...catalog.names].sort()).toEqual(["repo-only", "tdd"]);
+  });
+
+  it("negative: projectPath null skips the project's .claude/skills too", async () => {
+    const fs = fakeFs({ "/repo/.claude/skills/repo-only/SKILL.md": frontmatter("repo-only") });
+    const catalog = await resolveSkillsCatalog({ homeDir: "/home", projectPath: null }, fs);
+    expect(catalog.names.size).toBe(0);
+  });
+
   it("negative: an entry without a SKILL.md is not a skill", async () => {
     const fs = fakeFs({ "/home/.bb/skills/not-a-skill/README.md": "nope" });
     const catalog = await resolveSkillsCatalog({ homeDir: "/home", projectPath: null }, fs);
