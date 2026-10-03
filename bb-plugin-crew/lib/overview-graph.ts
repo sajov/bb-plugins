@@ -22,7 +22,7 @@ export type OverviewSource = {
     needsYou: number;
     members: ReadonlyArray<{ key: string; lead: boolean; activity: string }>;
     /** BB tasks carrying the label `crew-<name>` — the source of truth for factory crews, which never set `task` (BBP-84). */
-    labelTasks: ReadonlyArray<{ key: string; title: string; status: string }>;
+    labelTasks?: ReadonlyArray<{ key: string; title: string; status: string }>;
   }>;
   leadLinks: ReadonlyArray<{ from: string; to: string; count: number }>;
   dependencies: ReadonlyArray<{ crew: string; task: string; until: string; state: string; source: string | null }>;
@@ -126,7 +126,7 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
         edges.push({ kind: "task-crew", id: `${task.id}->${id}`, from: task.id, to: id, active: crewActive(crew.status, crew.members) });
       }
 
-      for (const labelTask of crew.labelTasks) {
+      for (const labelTask of crew.labelTasks ?? []) {
         const task = ensureTask(labelTask.key, DONE_TASK_STATUSES.has(labelTask.status), labelTask.title);
         const edgeId = `${task.id}->${id}`;
         if (edges.some((edge) => edge.id === edgeId)) continue;
