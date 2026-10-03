@@ -8,14 +8,14 @@ export const BADGE_PALETTE = [
   "#A1A1A1",
   "#525252",
   "#000000",
-  "#0070F3",
-  "#7C5CFF",
-  "#0AC5B3",
-  "#46A758",
-  "#C9A227",
-  "#E07B39",
-  "#E5484D",
-  "#BE6BA8",
+  "#2D9CFF",
+  "#9D5CFF",
+  "#00F5D4",
+  "#39FF6A",
+  "#FFE135",
+  "#FF8A1E",
+  "#FF3864",
+  "#FF2EE6",
 ] as const;
 
 /**
