@@ -25,13 +25,15 @@
 // still apply them at once on realtime changes. Rows fetched before the
 // setter exists are kept and applied when it arrives.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { definePluginApp, experimental_ProviderModelPicker as ProviderModelPicker, useBbContext, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, experimental_ProviderModelPicker as ProviderModelPicker, useBbContext, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginComposerThreadRowStatus } from "@get-bb/plugin-sdk/app";
 import type { ActivityDto, ChannelDto, CrewDto, MemberDto, MergeDto, MessageDto, OverviewDto, rpcContract, WorkDto } from "./server";
 import { CrewFileEditor } from "./components/crew-file-editor";
 import { CREW_ICON, CrewTeam } from "./components/crew-icon";
 import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, MemberBadge } from "./components/crew-surfaces";
 import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
+import { CrewOverviewFullscreen } from "./components/crew-overview-fullscreen";
+import type { OverviewSource } from "./lib/overview-graph";
 import { CommsStrip, MessageCard } from "./components/crew-comms";
 import { CrewBoardCanvas, type BoardLine } from "./components/crew-board";
 import { flowOf, messageFlows, RECENT_MS, recentFlowIds, timeline } from "./lib/comms";
@@ -1342,6 +1344,7 @@ export function shownProject(crews: readonly CrewDto[], picked: string | null, c
 
 function CrewsPage() {
   const rpc = useRpcBridge();
+  const navigate = useBbNavigate();
   const [crews, setCrews] = useState<CrewDto[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   /** The project overview is the entry; a crew opens from its card or the list. */
@@ -1363,6 +1366,27 @@ function CrewsPage() {
   const projects = useMemo(() => crewProjects(crews ?? []), [crews]);
   const crew = projectCrews.find((entry) => entry.id === selected) ?? projectCrews[0] ?? null;
   const { byProject } = useNeedsYou();
+
+  // BBP-71: the fullscreen diagram — every project's board, fetched the same
+  // way ProjectOverview fetches one, kept live by the same poll ProjectBoard
+  // already relies on for merges and behind-main (no push channel for either).
+  const [diagramOpen, setDiagramOpen] = useState(false);
+  const [overviews, setOverviews] = useState<Map<string, OverviewSource>>(new Map());
+  useEffect(() => {
+    if (!diagramOpen) return;
+    let cancelled = false;
+    const load = () => {
+      void Promise.all(projects.map((project) => rpc.call("projectOverview", { projectId: project.id }).then((result) => [project.id, result] as const))).then((entries) => {
+        if (!cancelled) setOverviews(new Map(entries));
+      }, () => undefined);
+    };
+    load();
+    const timer = setInterval(load, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [diagramOpen, rpc, projects]);
 
   const refetch = useCallback(() => {
     rpc.call("listCrews", { projectId: null }).then(
@@ -1461,6 +1485,10 @@ function CrewsPage() {
                     setView("crew");
                   }}
                 />
+                <Button size="sm" variant="outline" className="ml-auto h-7" onClick={() => setDiagramOpen(true)}>
+                  <Icon name="Expand" className="size-3.5" />
+                  Diagram
+                </Button>
               </div>
             ) : null}
             {view === "overview" && crew ? (
@@ -1614,6 +1642,28 @@ function CrewsPage() {
           </div>
         )}
       </div>
+      {diagramOpen ? (
+        <CrewOverviewFullscreen
+          projects={projects}
+          overviews={overviews}
+          onOpenCrew={(openProjectId, crewName) => {
+            const match = crews?.find((entry) => entry.projectId === openProjectId && entry.name === crewName);
+            if (match) {
+              setPickedProject(openProjectId);
+              setSelected(match.id);
+              setView("crew");
+            }
+            setDiagramOpen(false);
+          }}
+          onOpenTask={(_taskProjectId, taskKey) => {
+            // No in-app task side panel exists yet in this plugin (BBP-71's
+            // spec assumes one elsewhere in the BB app); best effort until
+            // that lands — open BB Tasks' own route for the key.
+            navigate.openUrl(`/tasks/${encodeURIComponent(taskKey)}`);
+          }}
+          onClose={() => setDiagramOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
