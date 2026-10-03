@@ -37,7 +37,7 @@ Downloads return immediately and continue in the background — poll
 ## Settings
 
 `bb plugin config listen` lists them; `bb plugin config listen set <key>
-<value>` changes one. Keys: `language`, `model`, `speak`, `summarize`,
+<value>` changes one. Keys: `language`, `model`, `summarize`,
 `summaryBackend`, `summaryThreadModel`, `summaryThreadProvider`,
 `summaryApiUrl`, `summaryApiModel`, `summaryApiKey`, `summaryPrompt`,
 `voiceModel`, `voiceSid`, `voiceSpeed`.
@@ -55,9 +55,9 @@ path falls back to speaking the filtered original answer and logs why.
 how to test a prompt or model without ending a real turn.
 
 `summaryPrompt` is what the hidden summary thread is told before the answer;
-empty means the built-in prompt. `speak` is only the default — each thread can
-override it with the speaker button beside the composer's microphone, and that
-choice wins.
+empty means the built-in prompt. There is no global switch for reading aloud:
+every thread starts silent, and the speaker button beside the composer's
+microphone turns it on for that thread only.
 
 Settings are read when the plugin loads, so run `bb plugin reload listen`
 after changing one.
@@ -73,10 +73,10 @@ after changing one.
   buffers the engine returns.
 - **"only speaks de-DE".** The voice and the `language` setting disagree. Change
   one of them; the plugin will not mangle text through the wrong phoneme set.
-- **Nothing is read aloud.** `speak` is off *or this thread's speaker button is
-  off* (right-click it to follow the setting again), the answer was empty, or
-  the answer was nothing but code — a code block reduces to no speakable words
-  and is skipped rather than read as "code block omitted".
+- **Nothing is read aloud.** This thread's speaker button is off — every
+  thread starts that way — or the answer was empty, or the answer was nothing
+  but code — a code block reduces to no speakable words and is skipped rather
+  than read as "code block omitted".
 
 ## Constraints worth knowing
 

@@ -139,6 +139,28 @@ describe("the thread's own speaker button", () => {
   });
 });
 
+describe("a thread with no global default (every thread starts silent)", () => {
+  // The server now always calls these with `enabled: false` — there is no
+  // more setting to fall back to. Only the thread's own button speaks.
+  it("stays silent when the thread never pressed its speaker button", () => {
+    expect(
+      shouldSpeak(
+        { id: "t1" },
+        { enabled: false, override: null, lastAssistantText: answer, ourWorkers: noWorkers },
+      ),
+    ).toEqual({ speak: false, reason: "disabled" });
+  });
+
+  it("speaks once the thread's own button turned it on", () => {
+    expect(
+      shouldSpeak(
+        { id: "t1" },
+        { enabled: false, override: true, lastAssistantText: answer, ourWorkers: noWorkers },
+      ),
+    ).toEqual({ speak: true });
+  });
+});
+
 describe("spokenText", () => {
   it("uses the summary when there is one", () => {
     expect(spokenText("The test passes now.", answer)).toEqual({

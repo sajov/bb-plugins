@@ -38,16 +38,17 @@ Open the plugin's settings page in BB and work down it:
    `bb settings ai-services show` confirms it. The model is the one chosen in
    the plugin's settings.
 
-4. **For speaking**, install a voice in the same page and turn on *Read
-   answers aloud*. Match the voice to your language — a German voice refuses
+4. **For speaking**, install a voice in the same page. Match the voice to your language — a German voice refuses
    English text rather than mangling it.
 
 ## Speaking, per thread
 
 Beside BB's microphone sits a speaker button. It switches reading aloud on or
-off **for that thread only**, which is usually what you want: one conversation
-you follow by ear while doing something else, another you read. Right-click it
-to drop the thread's choice and follow the global setting again.
+off **for that thread only**. Every thread starts silent — it works like a
+monitor: you switch on the one conversation you want to follow by ear, instead
+of hearing every thread you forgot to mute. The button appears once a voice is
+installed; it is not on the new-thread composer, since there is nothing to
+switch yet.
 
 The *Condensing prompt* setting is what the summarizer is told. The answer is
 appended below it. Rewrite it to taste — ask for one sentence, ask it to always
@@ -156,7 +157,7 @@ a file and `bb listen transcribe` reads it back, both halves work.
 
 ## Settings
 
-`language`, `model`, `speak`, `summarize`, `summaryBackend`,
+`language`, `model`, `summarize`, `summaryBackend`,
 `summaryThreadModel`, `summaryThreadProvider`, `summaryApiUrl`,
 `summaryApiModel`, `summaryApiKey`, `summaryPrompt`, `voiceModel`,
 `voiceSid`, `voiceSpeed` — set them in BB's settings UI or with
