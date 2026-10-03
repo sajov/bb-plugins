@@ -338,13 +338,13 @@ export function TopologyCanvas({
     const flow = flows.find((entry) => entry.id === activeFlow);
     return flow ? [flow.from, flow.to] : [];
   }, [flows, activeFlow]);
-  // On a phone the crew's structure stays in the legend; the canvas shows who talks.
-  const narrow = panelWidth > 0 && panelWidth < 640;
-  const drawnLinks = useMemo(() => (narrow ? [] : links), [narrow, links]);
+  // BBP-48: every possible link (crew.yaml's assigns_to, works_with, escalates_to,
+  // can_read) stays drawn quietly on any panel width; only the active message
+  // flows are narrowed down on a phone, where the structure is too dense.
   const drawnFlows = useMemo(() => shownFlows(flows, recent, activeFlow), [flows, recent, activeFlow]);
   const canvas = useMemo(
-    () => buildCrewCanvas(members, drawnLinks, drawnFlows, recent, activeFlow, maxPerRow),
-    [members, drawnLinks, drawnFlows, recent, activeFlow, maxPerRow],
+    () => buildCrewCanvas(members, links, drawnFlows, recent, activeFlow, maxPerRow),
+    [members, links, drawnFlows, recent, activeFlow, maxPerRow],
   );
   const byKey = useMemo(() => new Map(members.map((member) => [member.key, member])), [members]);
   const nodes: Node[] = canvas.boxes.map((box) => ({
@@ -431,8 +431,7 @@ export function TopologyLegend({ kinds, messages }: { kinds: readonly string[]; 
   return (
     <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground" aria-label="Legend">
       {shown.map(([kind, style]) => (
-        // Links are not drawn on a phone (TopologyCanvas), so their legend goes with them.
-        <li key={kind} className="hidden items-center gap-1.5 sm:flex">
+        <li key={kind} className="flex items-center gap-1.5">
           <svg width="18" height="6" aria-hidden>
             <line x1="0" y1="3" x2="18" y2="3" stroke={style.stroke} strokeDasharray={style.dash} strokeWidth="1.5" />
           </svg>

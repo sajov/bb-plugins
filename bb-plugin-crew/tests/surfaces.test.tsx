@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { formatPlan } from "../lib/format";
 import { validateCrew } from "../lib/spec";
-import { buildCrewCanvas } from "../components/crew-topology";
+import { buildCrewCanvas, TopologyLegend } from "../components/crew-topology";
 import type { ActivityDto, MemberDto } from "../server";
 import { PROJECT, running, setup, trioYaml } from "./helpers";
 
@@ -305,6 +305,18 @@ describe("topology edges (research template)", () => {
   it("negative: links to unknown members produce no edge", () => {
     const canvas = buildCrewCanvas([member({ key: "orch-lead", groupId: "orch", lead: true })], [{ from: "ghost", to: "orch-lead", kind: "escalates_to" }], [], new Set(), null);
     expect(canvas.edges).toEqual([]);
+  });
+
+  it("BBP-48: the legend shows every link kind without hiding it below a panel-width breakpoint", () => {
+    const { container } = render(<TopologyLegend kinds={["assigns_to", "escalates_to"]} messages={false} />);
+    const items = within(container).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    for (const item of items) expect(item.className).not.toContain("hidden");
+  });
+
+  it("negative: without any known link kind and no messages, the legend renders nothing", () => {
+    const { container } = render(<TopologyLegend kinds={[]} messages={false} />);
+    expect(container.querySelector("ul")).toBeNull();
   });
 
   it("a narrow panel wraps a wide group onto more rows instead of shrinking it", () => {
