@@ -24,13 +24,13 @@
 // d.ts:21109–21117) on mount and on a short poll; mounted React surfaces
 // still apply them at once on realtime changes. Rows fetched before the
 // setter exists are kept and applied when it arrives.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { definePluginApp, experimental_ProviderModelPicker as ProviderModelPicker, useBbContext, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginComposerThreadRowStatus } from "@get-bb/plugin-sdk/app";
 import type { ActivityDto, ChannelDto, CrewDto, MemberDto, MergeDto, MessageDto, OverviewDto, rpcContract, WorkDto } from "./server";
 import { CrewFileEditor } from "./components/crew-file-editor";
 import { CREW_ICON, CrewTeam } from "./components/crew-icon";
-import { ConfirmInteraction, CrewDirectiveCard, MemberBadge } from "./components/crew-surfaces";
+import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, MemberBadge } from "./components/crew-surfaces";
 import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
 import { CommsStrip, MessageCard } from "./components/crew-comms";
 import { CrewBoardCanvas, type BoardLine } from "./components/crew-board";
@@ -947,8 +947,10 @@ export function TopologyTab({
           {note}
         </p>
       ) : null}
-      {/* Canvas and card side by side on a wide panel; on a phone the card goes under the canvas, as in Graph Studio. */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      {/* Canvas and card side by side on a wide panel; in a narrow one (a phone, the thread sidebar) the card goes
+          under the canvas, as in Graph Studio. Measured on the panel, not the viewport: the sidebar is narrow on a wide screen. */}
+      <div className="@container">
+      <div className="flex flex-col gap-4 @3xl:flex-row @3xl:items-start">
         <TopologyCanvas
           members={members}
           links={links}
@@ -986,6 +988,7 @@ export function TopologyTab({
           />
         ) : null}
       </div>
+      </div>
       <TopologyLegend kinds={[...new Set(links.map((link) => link.kind))]} messages={flows.length > 0} />
       <CommsStrip messages={strip} crewName={crew.name} selectedId={messageId} onSelect={setMessageId} />
       <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4" aria-label="Crew communication">
@@ -1004,6 +1007,73 @@ export function TopologyTab({
         )}
       </section>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Crew thread panel (BBP-49): `::crew{crew="…"}` and the header/palette open
+// this in the thread's side panel, the exact pattern Graph Studio's
+// `::graph-run` uses for `threadPanelAction` — including its scroll wrapper
+// (GraphStudioPanel's outer two divs), so the two plugins' sidebar panels
+// read as the same product family, not a crew-only variant. TopologyTab
+// already draws the member graph on top and the crew log below, so the panel
+// is that tab, not a new layout. Styling here stays minimal; BBP-50
+// redesigns the config panels, in both plugins.
+
+function crewRefFromParams(params: unknown): { crew: string; projectId: string } | null {
+  if (typeof params !== "object" || params === null) return null;
+  const { crew, projectId } = params as Record<string, unknown>;
+  if (typeof crew !== "string" || typeof projectId !== "string" || !CREW_NAME.test(crew)) return null;
+  return { crew, projectId };
+}
+
+/** Graph Studio's GraphStudioPanel scroll wrapper, verbatim — the sidebar panels of both plugins share one shape. */
+function PanelScroll({ children }: { children: ReactNode }) {
+  return (
+    <div className="h-full min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto box-border w-full max-w-4xl px-4 pb-8 pt-3 md:px-5 md:pt-4">{children}</div>
+    </div>
+  );
+}
+
+export function CrewDetailPanel({ threadId, params }: { threadId: string; params: unknown }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const direct = useMemo(() => crewRefFromParams(params), [params]);
+  // No params (opened from the header or palette, not a directive): the panel's own thread names its crew.
+  const [ref, setRef] = useState<{ crew: string; projectId: string } | null | undefined>(direct ?? undefined);
+  useEffect(() => {
+    if (direct) return setRef(direct);
+    rpc.call("memberOfThread", { threadId }).then(
+      (result) => setRef(result.member ? { crew: result.member.crew, projectId: result.member.projectId } : null),
+      () => setRef(null),
+    );
+  }, [rpc, threadId, direct]);
+  const [crew, setCrew] = useState<CrewDto | null | undefined>(undefined);
+  const [members, setMembers] = useState<MemberDto[]>([]);
+  const [links, setLinks] = useState<{ from: string; to: string; kind: string }[]>([]);
+  const refetch = useCallback(() => {
+    if (!ref) return;
+    rpc.call("getCrew", { projectId: ref.projectId, name: ref.crew }).then(
+      (result) => {
+        setCrew(result.crew);
+        setMembers(result.members);
+        setLinks(result.links ?? []);
+      },
+      () => setCrew(null),
+    );
+  }, [rpc, ref?.projectId, ref?.crew]);
+  useEffect(refetch, [refetch]);
+  useRealtime(ACTIVITY_CHANNEL, refetch);
+  useRealtime(CREWS_CHANNEL, refetch);
+
+  if (ref === undefined) return <PanelScroll><p className="text-xs text-muted-foreground">Loading…</p></PanelScroll>;
+  if (ref === null) return <PanelScroll><p className="text-xs text-muted-foreground">This thread has no crew.</p></PanelScroll>;
+  if (crew === undefined) return <PanelScroll><p className="text-xs text-muted-foreground">Crew {ref.crew}: loading…</p></PanelScroll>;
+  if (crew === null) return <PanelScroll><p className="text-xs text-muted-foreground">There is no crew “{ref.crew}” in this project.</p></PanelScroll>;
+  return (
+    <PanelScroll>
+      <TopologyTab crew={crew} members={members} links={links} onChanged={refetch} />
+    </PanelScroll>
   );
 }
 
@@ -1567,6 +1637,17 @@ export default definePluginApp((app) => {
   });
   app.slots.experimental_threadHeaderAction({ id: "member-badge", title: "Crew member", component: MemberBadge });
   app.slots.messageDirective({ id: "crew", component: CrewDirectiveCard });
+  app.slots.threadPanelAction({
+    id: "crew",
+    title: "Crew",
+    icon: CREW_ICON,
+    layout: "flush",
+    run: async ({ threadId, openPanel }) => {
+      const member = await crewOfThread(threadId);
+      openPanel(member ? { title: `Crew ${member.crew}`, params: { crew: member.crew, projectId: member.projectId } } : { title: "Crew" });
+    },
+    component: ({ threadId, params }) => <CrewDetailPanel threadId={threadId} params={params} />,
+  });
   app.slots.pendingInteraction({ id: "crew-confirm", component: ConfirmInteraction });
   // Palette commands for the crew of the thread in view (§4.6).
   const needsCrew = ({ threadId }: { threadId: string | null }) => threadId !== null && rpcBridge !== null;

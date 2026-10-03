@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { fireEvent, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { formatPlan } from "../lib/format";
 import { validateCrew } from "../lib/spec";
-import { buildCrewCanvas } from "../components/crew-topology";
+import { buildCrewCanvas, TopologyLegend } from "../components/crew-topology";
 import type { ActivityDto, MemberDto } from "../server";
 import { PROJECT, running, setup, trioYaml } from "./helpers";
 
@@ -69,11 +69,12 @@ async function openCrew(slot: ReturnType<typeof renderSlot>, tab: string) {
 }
 
 describe("registrations (E4)", () => {
-  it("registers the header badge, the ::crew directive and the confirmation renderer", async () => {
+  it("registers the header badge, the ::crew directive, the confirmation renderer and the crew thread panel", async () => {
     const app = await loadPluginApp(() => import("../app"));
     expect(app.threadHeaderActions.map((entry) => entry.id)).toEqual(["member-badge"]);
     expect(app.messageDirectives.map((entry) => entry.id)).toEqual(["crew"]);
     expect(app.pendingInteractions.map((entry) => entry.id)).toEqual(["crew-confirm"]);
+    expect(app.threadPanelActions.map((entry) => entry.id)).toEqual(["crew"]);
   });
 });
 
@@ -127,6 +128,7 @@ describe("::crew directive", () => {
       openWorkspaceFile: null,
     }, {
       rpc: backend({ getActivity: () => ({ members: [view({ key: "orch-lead", lead: true }), view({ needsYou: ["human-question"], question: "Which API?" })] }) }),
+      openThreadPanel: () => true,
     });
     const card = await waitFor(() => {
       const found = slot.container.querySelector('[data-crew-directive="trio"]');
@@ -137,7 +139,22 @@ describe("::crew directive", () => {
     expect(card.textContent).toContain("running · 2 members · file v2");
     expect(card.textContent).toContain("★ orch-lead");
     fireEvent.click(slot.getByRole("button", { name: "Open in Crews" }));
-    expect(slot.navigateCalls.length).toBe(1);
+    expect(slot.navigateCalls).toEqual([
+      { method: "openThreadPanel", options: { actionId: "crew", title: "Crew trio", params: { crew: "trio", projectId: "p1" } } },
+    ]);
+    slot.lifecycle.unmount();
+  });
+
+  it("BBP-49: falls back to the Crews nav panel when the surface has no thread side panel", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(
+      app.messageDirectives[0]!,
+      { attributes: { crew: "trio" }, source: '::crew{crew="trio"}', message: { id: "m1", threadId: "th_9", turnId: null, projectId: "p1" }, openWorkspaceFile: null },
+      { rpc: backend(), openThreadPanel: () => false },
+    );
+    await waitFor(() => expect(slot.container.querySelector('[data-crew-directive="trio"]')).not.toBeNull());
+    fireEvent.click(slot.getByRole("button", { name: "Open in Crews" }));
+    expect(slot.navigateCalls.map((call) => call.method)).toEqual(["openThreadPanel", "toPluginPanel"]);
     slot.lifecycle.unmount();
   });
 
@@ -160,6 +177,77 @@ describe("::crew directive", () => {
     }, { rpc: backend({ getCrew: () => ({ crew: null, members: [], links: [] }) }) });
     await unknown.findByText("There is no crew “ghost” in this project.");
     unknown.lifecycle.unmount();
+  });
+});
+
+describe("crew thread panel (BBP-49)", () => {
+  it("opened from the directive's params: the member graph on top, the crew log below", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(
+      app.threadPanelActions[0]!,
+      { threadId: "th_9", params: { crew: "trio", projectId: "p1" } },
+      {
+        rpc: backend({
+          listMessages: () => ({
+            messages: [
+              {
+                id: "msg1",
+                chainId: "ch1",
+                step: 1,
+                replyTo: null,
+                kind: "message",
+                fromAddress: "orch-lead@trio",
+                fromCrew: "trio",
+                toAddress: "dev-impl@trio",
+                toCrew: "trio",
+                subject: "s",
+                body: "b",
+                priority: "normal",
+                status: "delivered",
+                reason: null,
+                deliveryMode: null,
+                attempts: 1,
+                lastError: null,
+                crossCrew: false,
+                openQuestion: false,
+                createdAt: 1,
+              },
+            ],
+          }),
+        }),
+      },
+    );
+    const canvas = await waitFor(() => {
+      const found = slot.container.querySelector('[aria-label="Topology"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    const log = await slot.findByRole("list", { name: "Crew log" });
+    expect(canvas.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    slot.lifecycle.unmount();
+  });
+
+  it("opened without params (header/palette): falls back to the panel thread's own crew", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(
+      app.threadPanelActions[0]!,
+      { threadId: "th_2", params: null },
+      { rpc: backend({ memberOfThread: () => ({ member: badgeMember }) }) },
+    );
+    await waitFor(() => expect(slot.container.querySelector('[aria-label="Topology"]')).not.toBeNull());
+    slot.lifecycle.unmount();
+  });
+
+  it("negative: a thread with no crew and no params shows no graph", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(
+      app.threadPanelActions[0]!,
+      { threadId: "th_plain", params: null },
+      { rpc: backend({ memberOfThread: () => ({ member: null }) }) },
+    );
+    await slot.findByText("This thread has no crew.");
+    expect(slot.container.querySelector('[aria-label="Topology"]')).toBeNull();
+    slot.lifecycle.unmount();
   });
 });
 
@@ -305,6 +393,18 @@ describe("topology edges (research template)", () => {
   it("negative: links to unknown members produce no edge", () => {
     const canvas = buildCrewCanvas([member({ key: "orch-lead", groupId: "orch", lead: true })], [{ from: "ghost", to: "orch-lead", kind: "escalates_to" }], [], new Set(), null);
     expect(canvas.edges).toEqual([]);
+  });
+
+  it("BBP-48: the legend shows every link kind without hiding it below a panel-width breakpoint", () => {
+    const { container } = render(<TopologyLegend kinds={["assigns_to", "escalates_to"]} messages={false} />);
+    const items = within(container).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    for (const item of items) expect(item.className).not.toContain("hidden");
+  });
+
+  it("negative: without any known link kind and no messages, the legend renders nothing", () => {
+    const { container } = render(<TopologyLegend kinds={[]} messages={false} />);
+    expect(container.querySelector("ul")).toBeNull();
   });
 
   it("a narrow panel wraps a wide group onto more rows instead of shrinking it", () => {

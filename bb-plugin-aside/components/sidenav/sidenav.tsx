@@ -833,6 +833,12 @@ export function Sidenav({
                           }
                           threadCount={sectionReach(threads, sectionBlock.section.id).threads}
                           projectCount={sectionReach(threads, sectionBlock.section.id).projects}
+                          onNewThread={() =>
+                            actions.openNewThread({
+                              projectId: block.project.id,
+                              focusPrompt: true,
+                            })
+                          }
                           onToggle={() =>
                             patchView({
                               collapsedSections: toggleId(view.collapsedSections, key),
