@@ -6,8 +6,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SectionRow } from "@/components/sidenav/section-row";
+import { OPEN_SELECT_GUARD_MS } from "@/components/ui/context-menu";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 function row(onNewThread: () => void) {
   return (
@@ -42,9 +46,13 @@ describe("section row context menu", () => {
   });
 
   it("calls onNewThread when picked", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     const onNewThread = vi.fn();
     render(row(onNewThread));
     fireEvent.contextMenu(screen.getByText("Backlog"));
+    // Past the open-select guard: a deliberate click, not the opening gesture.
+    vi.setSystemTime(OPEN_SELECT_GUARD_MS + 1);
     fireEvent.click(screen.getByText("New thread"));
     expect(onNewThread).toHaveBeenCalled();
   });
