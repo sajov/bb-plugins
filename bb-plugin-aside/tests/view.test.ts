@@ -119,6 +119,7 @@ describe("focus, pinned group and reset", () => {
       collapsedProjects: ["p1"],
       collapsedSections: ["p1:s1"],
       personalAfter: "p2",
+      threadOrder: ["t2", "t1"],
     });
     const reset = resetViewSettings(view);
     expect(reset.projectSort).toBe("manual");
@@ -127,6 +128,7 @@ describe("focus, pinned group and reset", () => {
     expect(reset.collapsedProjects).toEqual(["p1"]);
     expect(reset.collapsedSections).toEqual(["p1:s1"]);
     expect(reset.personalAfter).toBe("p2");
+    expect(reset.threadOrder).toEqual(["t2", "t1"]);
   });
 
   it("knows a default view from a changed one", () => {

@@ -17,7 +17,7 @@
 // `threads_delete` RPC): whoever wants a whole family gone selects it and gets
 // a delete that addresses every member itself. aside owns destructive deletion
 // there, which is why that path asks twice and names the count.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   experimental_useSidebarThreadActions as useSidebarThreadActions,
   type PluginSidebarThread,
@@ -50,19 +50,23 @@ export function RowMenu({
   children: ReactNode;
 }) {
   const actions = useSidebarThreadActions();
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
-    <ContextMenu>
+    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent
+        className="w-56"
+        // Only a click outside or Escape closes this menu. Focus wandering off
+        // — to the host, or back to the row under the pointer — used to close
+        // it the moment it had opened, so a right click often only flashed.
+        onFocusOutside={(event) => event.preventDefault()}
+      >
         <ContextMenuItem onSelect={() => actions.open(thread.id, { split: true })}>
           Open in split view
           <ContextMenuShortcut>⌘Click</ContextMenuShortcut>
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={onRename}>
-          Rename
-          <ContextMenuShortcut>Double click</ContextMenuShortcut>
-        </ContextMenuItem>
+        <ContextMenuItem onSelect={onRename}>Rename</ContextMenuItem>
         <ContextMenuItem
           onSelect={() => void actions.setPinned(thread.id, !thread.isPinned)}
         >

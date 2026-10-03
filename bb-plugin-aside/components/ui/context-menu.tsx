@@ -78,6 +78,17 @@ type ContextMenuShortcutProps = React.HTMLAttributes<HTMLSpanElement>;
 
 const CONTEXT_MENU_LAYER_CLASS = "z-[70]";
 
+/**
+ * How long after opening a select is ignored. The native contextmenu event
+ * fires on mouse-up, and that same mouse-up can land on whatever item Radix
+ * has just placed under the cursor — without this guard, releasing the
+ * button that opened the menu can immediately "click" the first item (e.g.
+ * Pin) nobody meant to choose.
+ */
+const OPEN_SELECT_GUARD_MS = 200;
+
+const ContextMenuOpenGuardContext = React.createContext<number>(0);
+
 const ContextMenu = ContextMenuPrimitive.Root;
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger;
 const ContextMenuGroup = ContextMenuPrimitive.Group;
@@ -146,22 +157,30 @@ ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName;
 const ContextMenuContent = React.forwardRef<
   ContextMenuContentElement,
   ContextMenuContentProps
->(({ className, children, ...props }, ref) => (
-  <ContextMenuPrimitive.Portal>
-    <ContextMenuPrimitive.Content
-      ref={ref}
-      {...usePortalScopeProps()}
-      className={cn(
-        CONTEXT_MENU_LAYER_CLASS,
-        "min-w-28 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-        className,
-      )}
-      {...props}
-    >
-      <MenuHoverProvider>{children}</MenuHoverProvider>
-    </ContextMenuPrimitive.Content>
-  </ContextMenuPrimitive.Portal>
-));
+>(({ className, children, ...props }, ref) => {
+  // One timestamp per mount — Radix mounts a fresh Content each time the menu
+  // opens, so this is "when did this particular menu appear".
+  const [openedAt] = React.useState(() => Date.now());
+
+  return (
+    <ContextMenuPrimitive.Portal>
+      <ContextMenuPrimitive.Content
+        ref={ref}
+        {...usePortalScopeProps()}
+        className={cn(
+          CONTEXT_MENU_LAYER_CLASS,
+          "min-w-28 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+          className,
+        )}
+        {...props}
+      >
+        <ContextMenuOpenGuardContext.Provider value={openedAt}>
+          <MenuHoverProvider>{children}</MenuHoverProvider>
+        </ContextMenuOpenGuardContext.Provider>
+      </ContextMenuPrimitive.Content>
+    </ContextMenuPrimitive.Portal>
+  );
+});
 ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName;
 
 const ContextMenuItem = React.forwardRef<
@@ -174,6 +193,7 @@ const ContextMenuItem = React.forwardRef<
       inset,
       onPointerEnter: callerPointerEnter,
       onKeyDown: callerKeyDown,
+      onSelect: callerSelect,
       ...props
     },
     ref,
@@ -182,6 +202,7 @@ const ContextMenuItem = React.forwardRef<
       onPointerEnter: callerPointerEnter,
       onKeyDown: callerKeyDown,
     });
+    const openedAt = React.useContext(ContextMenuOpenGuardContext);
 
     return (
       <ContextMenuPrimitive.Item
@@ -193,6 +214,13 @@ const ContextMenuItem = React.forwardRef<
           inset && "pl-8",
           className,
         )}
+        onSelect={(event) => {
+          if (Date.now() - openedAt < OPEN_SELECT_GUARD_MS) {
+            event.preventDefault();
+            return;
+          }
+          callerSelect?.(event);
+        }}
         {...props}
         {...hoverProps}
       />
@@ -337,6 +365,7 @@ function ContextMenuShortcut({
 ContextMenuShortcut.displayName = "ContextMenuShortcut";
 
 export {
+  OPEN_SELECT_GUARD_MS,
   ContextMenu,
   ContextMenuTrigger,
   ContextMenuContent,
