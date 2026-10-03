@@ -63,7 +63,8 @@ own worktree; readers share the crew's.
 `skills:` and `graphs:` are optional on crew, group and member, and inherit
 the same way `instructions` does (crew → group → member, each name kept
 once). `skills:` names skills to prefer, resolved against `~/.bb/skills`,
-`~/.bb/skills-generated` and the project's own `.bb/skills`; an unknown name
+`~/.bb/skills-generated`, `~/.claude/skills` and the project's own
+`.bb/skills` and `.claude/skills`; an unknown name
 only warns. `graphs:` names Graph Studio graphs the member may run with
 `crew_graph_run`; an unknown graph id only warns too — nothing is installed
 or validated beyond the name.
