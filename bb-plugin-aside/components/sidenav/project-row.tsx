@@ -177,16 +177,11 @@ export function ProjectRow({
               aria-expanded={!collapsed}
               title="Click expands and collapses · Alt-click opens only this one"
               onClick={(event) => {
-                // The second click of a double click must not expand and
-                // collapse in between.
+                // A rapid double click must not expand and collapse in
+                // between; renaming now lives in the context menu.
                 if (renaming || event.detail > 1) return;
                 if (event.altKey) onSolo();
                 else onToggle();
-              }}
-              onDoubleClick={(event) => {
-                event.preventDefault();
-                if (project.isPersonal) return;
-                onStartRename();
               }}
               onMouseDown={(event) => {
                 // A right click must not focus the button: the menu opens on
@@ -287,9 +282,9 @@ export function ProjectRow({
           <ContextMenuSeparator />
           <ContextMenuItem disabled={project.isPersonal} onSelect={onStartRename}>
             Rename
-            <ContextMenuShortcut>
-              {project.isPersonal ? "implicit" : "Double click"}
-            </ContextMenuShortcut>
+            {project.isPersonal ? (
+              <ContextMenuShortcut>implicit</ContextMenuShortcut>
+            ) : null}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuSub>

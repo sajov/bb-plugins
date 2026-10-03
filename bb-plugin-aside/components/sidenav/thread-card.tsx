@@ -246,8 +246,8 @@ export function ThreadCard({
             else callbacks.onReorder(draggedId, root.id, where);
           }}
           onClick={(event) => {
-            // The second click of a double click renames and must not navigate
-            // a second time.
+            // A rapid double click must not open the thread twice; renaming
+            // now lives in the context menu, not on the second click.
             if (renaming || dragging.current || event.detail > 1) return;
             // In selection mode the whole row is the checkbox: hitting a 14px
             // box for every thread you want gone is the part people give up on.
@@ -256,11 +256,6 @@ export function ThreadCard({
               return;
             }
             callbacks.onOpen(root.id, event.metaKey || event.ctrlKey);
-          }}
-          onDoubleClick={(event) => {
-            if (selection !== null) return;
-            event.preventDefault();
-            onStartRename(root.id);
           }}
           {...(selection === null ? splitProps : {})}
           className={cn(
