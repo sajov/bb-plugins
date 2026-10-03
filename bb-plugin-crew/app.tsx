@@ -24,7 +24,7 @@
 // d.ts:21109–21117) on mount and on a short poll; mounted React surfaces
 // still apply them at once on realtime changes. Rows fetched before the
 // setter exists are kept and applied when it arrives.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { definePluginApp, experimental_ProviderModelPicker as ProviderModelPicker, useBbContext, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginComposerThreadRowStatus } from "@get-bb/plugin-sdk/app";
 import type { ActivityDto, ChannelDto, CrewDto, MemberDto, MergeDto, MessageDto, OverviewDto, rpcContract, WorkDto } from "./server";
@@ -1009,16 +1009,28 @@ export function TopologyTab({
 
 // ---------------------------------------------------------------------------
 // Crew thread panel (BBP-49): `::crew{crew="…"}` and the header/palette open
-// this in the thread's side panel, the pattern Graph Studio's `::graph-run`
-// uses for `threadPanelAction` — TopologyTab already draws the member graph
-// on top and the crew log below, so the panel is that tab, not a new layout.
-// Styling here stays minimal; BBP-50 redesigns the config panels.
+// this in the thread's side panel, the exact pattern Graph Studio's
+// `::graph-run` uses for `threadPanelAction` — including its scroll wrapper
+// (GraphStudioPanel's outer two divs), so the two plugins' sidebar panels
+// read as the same product family, not a crew-only variant. TopologyTab
+// already draws the member graph on top and the crew log below, so the panel
+// is that tab, not a new layout. Styling here stays minimal; BBP-50
+// redesigns the config panels, in both plugins.
 
 function crewRefFromParams(params: unknown): { crew: string; projectId: string } | null {
   if (typeof params !== "object" || params === null) return null;
   const { crew, projectId } = params as Record<string, unknown>;
   if (typeof crew !== "string" || typeof projectId !== "string" || !CREW_NAME.test(crew)) return null;
   return { crew, projectId };
+}
+
+/** Graph Studio's GraphStudioPanel scroll wrapper, verbatim — the sidebar panels of both plugins share one shape. */
+function PanelScroll({ children }: { children: ReactNode }) {
+  return (
+    <div className="h-full min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto box-border w-full max-w-4xl px-4 pb-8 pt-3 md:px-5 md:pt-4">{children}</div>
+    </div>
+  );
 }
 
 export function CrewDetailPanel({ threadId, params }: { threadId: string; params: unknown }) {
@@ -1051,14 +1063,14 @@ export function CrewDetailPanel({ threadId, params }: { threadId: string; params
   useRealtime(ACTIVITY_CHANNEL, refetch);
   useRealtime(CREWS_CHANNEL, refetch);
 
-  if (ref === undefined) return <p className="p-3 text-xs text-muted-foreground">Loading…</p>;
-  if (ref === null) return <p className="p-3 text-xs text-muted-foreground">This thread has no crew.</p>;
-  if (crew === undefined) return <p className="p-3 text-xs text-muted-foreground">Crew {ref.crew}: loading…</p>;
-  if (crew === null) return <p className="p-3 text-xs text-muted-foreground">There is no crew “{ref.crew}” in this project.</p>;
+  if (ref === undefined) return <PanelScroll><p className="text-xs text-muted-foreground">Loading…</p></PanelScroll>;
+  if (ref === null) return <PanelScroll><p className="text-xs text-muted-foreground">This thread has no crew.</p></PanelScroll>;
+  if (crew === undefined) return <PanelScroll><p className="text-xs text-muted-foreground">Crew {ref.crew}: loading…</p></PanelScroll>;
+  if (crew === null) return <PanelScroll><p className="text-xs text-muted-foreground">There is no crew “{ref.crew}” in this project.</p></PanelScroll>;
   return (
-    <div className="p-3">
+    <PanelScroll>
       <TopologyTab crew={crew} members={members} links={links} onChanged={refetch} />
-    </div>
+    </PanelScroll>
   );
 }
 
