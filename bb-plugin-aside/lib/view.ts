@@ -38,6 +38,11 @@ export interface ViewState {
    * The host does not sort it, so we keep the position ourselves.
    */
   personalAfter: string | null;
+  /**
+   * Root thread ids in the order they were dragged. The host keeps an order
+   * only for pinned threads, so we keep the rest ourselves.
+   */
+  threadOrder: string[];
   /** Collapsed projects, as project ids. */
   collapsedProjects: string[];
   /** Collapsed sections, as `projectId:sectionId`. */
@@ -68,6 +73,7 @@ export const DEFAULT_VIEW: ViewState = {
   compact: false,
   emptyProjects: false,
   personalAfter: null,
+  threadOrder: [],
   collapsedProjects: [],
   collapsedSections: [],
   openQuiet: [],
@@ -132,6 +138,7 @@ export function parseViewState(value: unknown): ViewState {
       raw.personalAfter.length <= 200
         ? raw.personalAfter
         : null,
+    threadOrder: readIds(raw.threadOrder),
     collapsedProjects: readIds(raw.collapsedProjects),
     collapsedSections: readIds(raw.collapsedSections),
     openQuiet: readIds(raw.openQuiet),
@@ -187,6 +194,7 @@ export function resetViewSettings(view: ViewState): ViewState {
   return {
     ...DEFAULT_VIEW,
     personalAfter: view.personalAfter,
+    threadOrder: view.threadOrder,
     collapsedProjects: view.collapsedProjects,
     collapsedSections: view.collapsedSections,
   };

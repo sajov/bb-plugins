@@ -30,6 +30,7 @@ import {
   projectState,
   sectionReach,
   sortProjects,
+  moveInOrder,
   splitQuiet,
   threadTitle,
   withoutEmptyProjects,
@@ -44,6 +45,7 @@ import {
   parseViewState,
   resetViewSettings,
   sectionKey,
+  MAX_IDS,
   toggleId,
   type ViewState,
 } from "@/lib/view";
@@ -151,11 +153,6 @@ export function Sidenav({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [searchFocus, setSearchFocus] = useState(0);
-  // A question the notice strip asks before doing something the gesture did
-  // not say — today only "pin to keep this order".
-  const [pending, setPending] = useState<{ message: string; confirm: () => void } | null>(
-    null,
-  );
   const viewLoaded = useRef(false);
 
   const refetch = useCallback(() => {
@@ -197,10 +194,19 @@ export function Sidenav({
           archived: view.archived,
           sections,
           threadSort: view.threadSort,
+          threadOrder: view.threadOrder,
         }),
         view.projectSort,
       ),
-    [threads, projects, sections, view.archived, view.threadSort, view.projectSort],
+    [
+      threads,
+      projects,
+      sections,
+      view.archived,
+      view.threadSort,
+      view.threadOrder,
+      view.projectSort,
+    ],
   );
 
   const activeProject = useMemo(() => {
@@ -339,14 +345,41 @@ export function Sidenav({
           report("A thread does not change projects.");
           return;
         }
-        const write = () => reorder(dragged, threadId, targetThreadId, where);
-        // Reordering pins, because the host keeps no other thread order. That
-        // used to happen silently; now the drag asks first.
-        if (!dragged.isPinned) {
-          setPending({ message: "Only pinned threads keep an order. Pin it and move it here?", confirm: write });
+        // "State" is a computed order; a drag inside it would write something
+        // the list then ignores.
+        if (view.threadSort !== "newest") {
+          report("To reorder by dragging: Sort → Threads → Newest first.");
           return;
         }
-        write();
+        const shown =
+          grouped
+            .find((block) => block.project.id === dragged.projectId)
+            ?.families.map((family) => family.root.id) ?? [];
+        const threadOrder = moveInOrder(
+          view.threadOrder,
+          shown,
+          threadId,
+          targetThreadId,
+          where,
+        ).slice(-MAX_IDS);
+        patchView({ threadOrder });
+        // Pins also keep their order in the host, so bb's own sidebar agrees.
+        if (dragged.isPinned && target.isPinned) {
+          const pinned = new Set(
+            threads.filter((thread) => thread.isPinned).map((thread) => thread.id),
+          );
+          const ownOrder = threadOrder.filter((id) => shown.includes(id) && pinned.has(id));
+          const at = ownOrder.indexOf(threadId);
+          void rpc
+            .call("thread_reorder", {
+              threadId,
+              previousThreadId: ownOrder[at - 1] ?? null,
+              nextThreadId: ownOrder[at + 1] ?? null,
+            })
+            .catch((cause: unknown) =>
+              report(cause instanceof Error ? cause.message : String(cause)),
+            );
+        }
       },
       onNest: (threadId, parentThreadId) => {
         const dragged = threads.find((thread) => thread.id === threadId);
@@ -367,47 +400,8 @@ export function Sidenav({
       },
       onDropRejected: report,
     }),
-    [actions, openThread, report, rpc, threads],
+    [actions, grouped, openThread, patchView, report, rpc, threads, view.threadOrder, view.threadSort],
   );
-
-  function reorder(
-    dragged: (typeof threads)[number],
-    threadId: string,
-    targetThreadId: string,
-    where: "before" | "after",
-  ) {
-        // The host keeps an order only for pinned threads. The neighbours are
-        // therefore the pinned threads of the same project — without the
-        // dragged one, which is moving right now.
-        const pinned = threads
-          .filter(
-            (thread) =>
-              thread.projectId === dragged.projectId &&
-              thread.isPinned &&
-              thread.id !== threadId &&
-              !thread.isArchived,
-          )
-          .sort((left, right) => right.createdAt - left.createdAt);
-        const targetIndex = pinned.findIndex((thread) => thread.id === targetThreadId);
-        const before = where === "before";
-        const previousThreadId = before
-          ? (pinned[targetIndex - 1]?.id ?? null)
-          : (pinned[targetIndex]?.id ?? null);
-        const nextThreadId = before
-          ? (pinned[targetIndex]?.id ?? null)
-          : (pinned[targetIndex + 1]?.id ?? null);
-        void rpc
-          .call("thread_reorder", { threadId, previousThreadId, nextThreadId })
-          .then((result) => {
-            if (result.pinned) {
-              report("Pinned — only pinned threads keep their order.");
-            }
-          })
-          .catch((cause: unknown) =>
-            report(cause instanceof Error ? cause.message : String(cause)),
-          );
-  }
-
 
   const selection: SelectionProps | null = useMemo(
     () =>
@@ -607,29 +601,6 @@ export function Sidenav({
         onClear={clearScope}
         onClearAll={clearAllScopes}
       />
-
-      {pending !== null ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border-hairline px-3 py-1.5 text-2xs text-muted-foreground">
-          <span className="min-w-0 flex-1">{pending.message}</span>
-          <button
-            type="button"
-            onClick={() => {
-              pending.confirm();
-              setPending(null);
-            }}
-            className="rounded-md bg-sidebar-accent px-2 py-0.5 text-foreground hover:opacity-90"
-          >
-            Pin and move
-          </button>
-          <button
-            type="button"
-            onClick={() => setPending(null)}
-            className="rounded-md px-2 py-0.5 hover:bg-sidebar-accent"
-          >
-            Cancel
-          </button>
-        </div>
-      ) : null}
 
       {waiting.length > 0 ? (
         <button
@@ -839,7 +810,7 @@ export function Sidenav({
                     );
                 }}
               >
-                {block.blocks.map((sectionBlock) => {
+                {block.blocks.map((sectionBlock, index) => {
                   const key =
                     sectionBlock.section === null
                       ? null
@@ -847,7 +818,7 @@ export function Sidenav({
                   const sectionCollapsed =
                     key !== null && view.collapsedSections.includes(key);
                   return (
-                    <div key={sectionBlock.section?.id ?? "loose"}>
+                    <div key={sectionBlock.section?.id ?? `loose-${index}`}>
                       {sectionBlock.section === null || key === null ? null : (
                         <SectionRow
                           name={sectionBlock.section.name}

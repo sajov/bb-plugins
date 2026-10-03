@@ -13,7 +13,7 @@ export interface Family {
 
 /** A section heading inside a project, or the area before it. */
 export interface SectionBlock {
-  /** Null for the families without a section; those always come first. */
+  /** Null for the pinned families on top and for those without a section. */
   section: { id: string; name: string } | null;
   families: Family[];
 }
@@ -154,6 +154,8 @@ export interface GroupOptions {
   sections: readonly { id: string; name: string }[];
   /** What the families inside a block are sorted by. */
   threadSort: "newest" | "state";
+  /** Root thread ids in the order the user dragged them. */
+  threadOrder?: readonly string[];
 }
 
 /**
@@ -197,7 +199,7 @@ export function groupThreads(
       );
     }
 
-    const sorted = sortFamilies(families, options.threadSort);
+    const sorted = sortFamilies(families, options.threadSort, options.threadOrder);
     return {
       project,
       families: sorted,
@@ -207,18 +209,30 @@ export function groupThreads(
 }
 
 /**
- * Pinned threads sit on top in every mode — that is what pinning means, and
- * `threads.reorderPinned` is also the only thread order the host keeps at all.
+ * Pinned threads sit on top in every mode — that is what pinning means.
+ *
+ * In "newest" mode a dragged order wins: the host keeps an order only for
+ * pinned threads, so aside keeps its own (`threadOrder`). Threads that were
+ * never dragged come first, newest on top — a thread just started must be
+ * visible without scrolling past the arranged ones. "state" ignores the
+ * dragged order; it is a computed sort.
  */
 export function sortFamilies(
   families: readonly Family[],
   mode: "newest" | "state",
+  threadOrder: readonly string[] = [],
 ): Family[] {
   const pinned = families.filter((family) => family.root.isPinned);
   const rest = families.filter((family) => !family.root.isPinned);
   const byNewest = (left: Family, right: Family) =>
     right.root.createdAt - left.root.createdAt ||
     left.root.id.localeCompare(right.root.id);
+  const rank = new Map(threadOrder.map((id, index) => [id, index]));
+  const byDragged = (left: Family, right: Family) => {
+    const a = rank.get(left.root.id) ?? -1;
+    const b = rank.get(right.root.id) ?? -1;
+    return a - b || byNewest(left, right);
+  };
   const sortedRest =
     mode === "state"
       ? [...rest].sort(
@@ -226,8 +240,31 @@ export function sortFamilies(
             THREAD_STATE_RANK[familyState(left)] -
               THREAD_STATE_RANK[familyState(right)] || byNewest(left, right),
         )
-      : [...rest].sort(byNewest);
-  return [...pinned].sort(byNewest).concat(sortedRest);
+      : [...rest].sort(byDragged);
+  const sortedPinned = [...pinned].sort(mode === "state" ? byNewest : byDragged);
+  return sortedPinned.concat(sortedRest);
+}
+
+/**
+ * The dragged order after dropping `draggedId` before or after `targetId`.
+ *
+ * `shown` is the project's root order as drawn; it replaces that project's
+ * old entries in `order`, so every thread of the project counts as arranged
+ * from now on. Ids of other projects keep their place.
+ */
+export function moveInOrder(
+  order: readonly string[],
+  shown: readonly string[],
+  draggedId: string,
+  targetId: string,
+  where: "before" | "after",
+): string[] {
+  const local = shown.filter((id) => id !== draggedId);
+  const target = local.indexOf(targetId);
+  if (target < 0) return [...order];
+  local.splice(where === "before" ? target : target + 1, 0, draggedId);
+  const own = new Set(shown);
+  return order.filter((id) => !own.has(id)).concat(local);
 }
 
 /**
@@ -235,23 +272,27 @@ export function sortFamilies(
  * `{ id, name }`, and threads point at it through `sectionId`. It therefore
  * appears in every project where it has threads — and nowhere else.
  *
- * Sections sit at the **top**, in the order the caller supplies (newest first):
- * a section just created must be visible without scrolling past the loose
- * threads. The threads without a section follow below — with no invented
- * "Other" heading.
+ * Pinned threads come first, above every section and out of their own one —
+ * you pulled them up yourself. Sections follow, in the order the caller
+ * supplies (newest first): a section just created must be visible without
+ * scrolling past the loose threads. The threads without a section follow
+ * below — with no invented "Other" heading.
  */
 export function splitIntoSections(
   families: readonly Family[],
   sections: readonly { id: string; name: string }[],
 ): SectionBlock[] {
   const blocks: SectionBlock[] = [];
+  const pinned = families.filter((family) => family.root.isPinned);
+  if (pinned.length) blocks.push({ section: null, families: pinned });
+  const unpinned = families.filter((family) => !family.root.isPinned);
   for (const section of sections) {
-    const own = families.filter(
+    const own = unpinned.filter(
       (family) => family.root.sectionId === section.id,
     );
     if (own.length) blocks.push({ section, families: own });
   }
-  const loose = families.filter((family) => family.root.sectionId === null);
+  const loose = unpinned.filter((family) => family.root.sectionId === null);
   if (loose.length) blocks.push({ section: null, families: loose });
   return blocks;
 }

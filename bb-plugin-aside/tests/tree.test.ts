@@ -7,6 +7,7 @@ import {
   countFamilies,
   displayOrder,
   latestActivity,
+  moveInOrder,
   nextAttention,
   pinnedFamilies,
   sectionReach,
@@ -414,6 +415,111 @@ describe("sections", () => {
     const inSection = thread({ id: "in", projectId: "p", sectionId: "s2" });
     const blocks = splitIntoSections([{ root: inSection, children: [] }], sections);
     expect(blocks.map((block) => block.section?.name)).toEqual(["Wartung"]);
+  });
+});
+
+describe("pins inside a project", () => {
+  const sections = [{ id: "s1", name: "Release" }];
+
+  it("puts the pinned threads above the sections", () => {
+    const loose = thread({ id: "loose", projectId: "p" });
+    const inSection = thread({ id: "in", projectId: "p", sectionId: "s1" });
+    const pinned = thread({ id: "pin", projectId: "p", isPinned: true });
+    const blocks = splitIntoSections(
+      [
+        { root: pinned, children: [] },
+        { root: inSection, children: [] },
+        { root: loose, children: [] },
+      ],
+      sections,
+    );
+    expect(
+      blocks.map((block) => [
+        block.section?.name ?? null,
+        block.families.map((family) => family.root.id),
+      ]),
+    ).toEqual([
+      [null, ["pin"]],
+      ["Release", ["in"]],
+      [null, ["loose"]],
+    ]);
+  });
+
+  it("lifts a pinned thread out of its section", () => {
+    const pinned = thread({ id: "pin", projectId: "p", sectionId: "s1", isPinned: true });
+    const inSection = thread({ id: "in", projectId: "p", sectionId: "s1" });
+    const blocks = splitIntoSections(
+      [
+        { root: pinned, children: [] },
+        { root: inSection, children: [] },
+      ],
+      sections,
+    );
+    expect(blocks.map((block) => block.families.map((family) => family.root.id))).toEqual([
+      ["pin"],
+      ["in"],
+    ]);
+  });
+});
+
+describe("dragged thread order", () => {
+  it("sorts by the dragged order and keeps new threads on top", () => {
+    const older = thread({ id: "a", projectId: "p" });
+    const middle = thread({ id: "b", projectId: "p" });
+    const fresh = thread({ id: "new", projectId: "p" });
+    const families = [older, middle, fresh].map((root) => ({ root, children: [] }));
+    expect(
+      sortFamilies(families, "newest", ["a", "b"]).map((family) => family.root.id),
+    ).toEqual(["new", "a", "b"]);
+  });
+
+  it("orders pinned threads by the dragged order, still on top", () => {
+    const pinA = thread({ id: "pa", projectId: "p", isPinned: true });
+    const pinB = thread({ id: "pb", projectId: "p", isPinned: true });
+    const rest = thread({ id: "r", projectId: "p" });
+    const families = [pinA, pinB, rest].map((root) => ({ root, children: [] }));
+    expect(
+      sortFamilies(families, "newest", ["r", "pa", "pb"]).map((family) => family.root.id),
+    ).toEqual(["pa", "pb", "r"]);
+  });
+
+  it("ignores the dragged order when sorting by state", () => {
+    const quiet = thread({ id: "q", projectId: "p" });
+    const waiting = thread({ id: "w", projectId: "p", hasPendingInteraction: true });
+    const families = [quiet, waiting].map((root) => ({ root, children: [] }));
+    expect(
+      sortFamilies(families, "state", ["q", "w"]).map((family) => family.root.id),
+    ).toEqual(["w", "q"]);
+  });
+
+  it("groupThreads applies the dragged order", () => {
+    const first = thread({ id: "a", projectId: "p" });
+    const second = thread({ id: "b", projectId: "p" });
+    const [block] = groupThreads([first, second], [project("p")], {
+      archived: false,
+      sections: [],
+      threadSort: "newest",
+      threadOrder: ["a", "b"],
+    });
+    expect(block.families.map((family) => family.root.id)).toEqual(["a", "b"]);
+  });
+
+  it("moves a thread before or after its target within the shown order", () => {
+    expect(moveInOrder(["x"], ["a", "b", "c"], "c", "a", "before")).toEqual([
+      "x",
+      "c",
+      "a",
+      "b",
+    ]);
+    expect(moveInOrder([], ["a", "b", "c"], "a", "b", "after")).toEqual(["b", "a", "c"]);
+  });
+
+  it("replaces the project's old entries instead of duplicating them", () => {
+    expect(moveInOrder(["b", "y", "a"], ["a", "b"], "a", "b", "after")).toEqual([
+      "y",
+      "b",
+      "a",
+    ]);
   });
 });
 
