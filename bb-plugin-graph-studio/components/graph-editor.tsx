@@ -43,6 +43,14 @@ import { FullscreenLayer } from "./fullscreen";
 import { ExportedFileView, type ExportedFile } from "./exported-file";
 import { Button } from "@/components/ui/button";
 import { Icon, type IconName } from "@/components/ui/icon";
+import {
+  FIELD_CONTROL,
+  FIELD_HINT,
+  FIELD_LABEL,
+  InspectorFooter,
+  InspectorHeader,
+  InspectorSection,
+} from "./inspector";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -217,10 +225,7 @@ function NodeExecutionSection({
       <div className="space-y-2">
         {spawnsThread(node) ? (
           <div className="space-y-1">
-            <span className="block text-[11px] text-muted-foreground">
-              Model — with no choice of its own, the worker runs on the model
-              of the thread the run belongs to.
-            </span>
+            <span className={FIELD_LABEL}>Model</span>
             <select
               value={explicit ? "explicit" : "inherit"}
               onChange={(event) => {
@@ -243,11 +248,17 @@ function NodeExecutionSection({
                 });
               }}
               aria-label={`Model choice of node ${index + 1}`}
-              className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+              className={FIELD_CONTROL}
             >
               <option value="inherit">Inherit from the parent thread</option>
               <option value="explicit">Set for this node</option>
             </select>
+            {explicit ? null : (
+              <p className={FIELD_HINT}>
+                With no choice of its own, the worker runs on the model of the
+                thread the run belongs to.
+              </p>
+            )}
             {explicit ? (
               <ProviderModelPicker
                 value={{
@@ -293,6 +304,7 @@ function NodeExecutionSection({
                 })
               }
               aria-label={`Visit limit of node ${index + 1}`}
+              className="h-8 px-2 text-xs"
             />
           </label>
           <label className="space-y-1">
@@ -310,6 +322,7 @@ function NodeExecutionSection({
                 })
               }
               aria-label={`Attempts of node ${index + 1}`}
+              className="h-8 px-2 text-xs"
             />
           </label>
           {node.kind === "dialog" ? (
@@ -328,6 +341,7 @@ function NodeExecutionSection({
                   })
                 }
                 aria-label={`Questions of node ${index + 1}`}
+                className="h-8 px-2 text-xs"
               />
             </label>
           ) : null}
@@ -344,7 +358,7 @@ function NodeExecutionSection({
                 onPatch({ onError: event.target.value as GraphNode["onError"] })
               }
               aria-label={`Failure handling of node ${index + 1}`}
-              className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+              className={FIELD_CONTROL}
             >
               <option value="stop">End the run</option>
               <option value="route">
@@ -379,6 +393,7 @@ function NodeExecutionSection({
                 })
               }
               aria-label={`Visit limit of node ${index + 1}`}
+              className="h-8 px-2 text-xs"
             />
           </label>
           <label className="space-y-1">
@@ -396,6 +411,7 @@ function NodeExecutionSection({
                 })
               }
               aria-label={`Attempts of node ${index + 1}`}
+              className="h-8 px-2 text-xs"
             />
           </label>
           {node.kind === "dialog" ? (
@@ -414,6 +430,7 @@ function NodeExecutionSection({
                   })
                 }
                 aria-label={`Questions of node ${index + 1}`}
+                className="h-8 px-2 text-xs"
               />
             </label>
           ) : null}
@@ -430,7 +447,7 @@ function NodeExecutionSection({
                 onPatch({ onError: event.target.value as GraphNode["onError"] })
               }
               aria-label={`Failure handling of node ${index + 1}`}
-              className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+              className={FIELD_CONTROL}
             >
               <option value="stop">End the run</option>
               <option value="route">
@@ -468,7 +485,7 @@ function NodeExecutionSection({
                 });
               }}
               aria-label={`Model choice of node ${index + 1}`}
-              className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+              className={FIELD_CONTROL}
             >
               <option value="inherit">Inherit from the parent thread</option>
               <option value="explicit">Set for this node</option>
@@ -1256,19 +1273,9 @@ export function GraphEditor({
     body: React.ReactNode,
     open = false,
   ) => (
-    <details open={open || undefined} className="group border-t border-border/60 py-2.5">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px]">
-        <Icon
-          name="ChevronRight"
-          className="size-3 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
-        />
-        <span className="font-medium uppercase tracking-wide text-muted-foreground">
-          {title}
-        </span>
-        <span className="ml-auto min-w-0 truncate text-muted-foreground">{summary}</span>
-      </summary>
-      <div className="mt-2 space-y-2">{body}</div>
-    </details>
+    <InspectorSection title={title} summary={summary} open={open}>
+      {body}
+    </InspectorSection>
   );
 
   const renderNodeCard = (node: GraphNode, index: number) => {
@@ -1279,29 +1286,29 @@ export function GraphEditor({
     return (
     <div className="space-y-1" aria-label={`Node ${node.label}`}>
       {/* Head: what the node is, in one glance. */}
-      <div className="flex items-start gap-2">
-        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-          <Icon name={KIND_ICONS[node.kind]} className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{node.label || node.id}</p>
-          <p className="truncate text-[11px] text-muted-foreground">
+      <InspectorHeader
+        icon={<Icon name={KIND_ICONS[node.kind]} className="size-4" />}
+        title={node.label || node.id}
+        subtitle={
+          <>
             <code>{node.id}</code> · {KIND_LABEL[node.kind]}
             {node.kind === "subgraph" && resolveGraph(node.graphId)
               ? ` · imports ${resolveGraph(node.graphId)!.name}`
               : ""}
-          </p>
-        </div>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 shrink-0 px-2"
-          onClick={() => setSelection(null)}
-          aria-label="Close the card"
-        >
-          <Icon name="X" className="size-3.5" />
-        </Button>
-      </div>
+          </>
+        }
+        actions={
+          <Button
+            size="sm"
+            variant="ghost"
+            className="size-7 p-0"
+            onClick={() => setSelection(null)}
+            aria-label="Close the card"
+          >
+            <Icon name="X" className="size-3.5" />
+          </Button>
+        }
+      />
 
 
       {problemsFor(node).length > 0 ? (
@@ -1397,7 +1404,7 @@ export function GraphEditor({
                   <div
                     role="radiogroup"
                     aria-label={`Kind of node ${index + 1}`}
-                    className="grid grid-cols-5 gap-1"
+                    className="grid grid-cols-3 gap-1"
                   >
                     {NODE_KINDS.map((kind) => (
                       <button
@@ -1408,7 +1415,7 @@ export function GraphEditor({
                         title={KIND_LABELS[kind]}
                         onClick={() => patchNode(index, { kind })}
                         className={cn(
-                          "flex min-w-0 flex-col items-center gap-0.5 rounded-md border px-1 py-1.5 text-[10px]",
+                          "flex min-w-0 flex-col items-center gap-1 rounded-md border px-1 py-2 text-[11px]",
                           node.kind === kind
                             ? "border-primary bg-primary/10 text-foreground"
                             : "border-border text-muted-foreground hover:text-foreground",
@@ -1455,7 +1462,7 @@ export function GraphEditor({
                       patchNode(index, { graphId: event.target.value })
                     }
                     aria-label={`Embedded graph of node ${index + 1}`}
-                    className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                    className={FIELD_CONTROL}
                   >
                     <option value="">Choose a graph …</option>
                     {groupedLibrary(
@@ -1648,7 +1655,7 @@ export function GraphEditor({
                         patchNode(index, { skills: [...node.skills, id] });
                       }}
                       aria-label={`Add a skill to node ${index + 1}`}
-                      className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                      className={FIELD_CONTROL}
                     >
                       <option value="">Add a skill …</option>
                       {availableSkills
@@ -1808,7 +1815,7 @@ export function GraphEditor({
                         })
                       }
                       aria-label={`Routing of node ${index + 1}`}
-                      className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs"
+                      className={FIELD_CONTROL}
                     >
                       {ROUTING_MODES.map((mode) => (
                         <option key={mode} value={mode}>
@@ -1857,14 +1864,17 @@ export function GraphEditor({
         false,
       )}
 
-      <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2.5">
-        <code className="truncate text-[11px] text-muted-foreground">
-          {`{{${node.id}}}`} — how later prompts read this node
-        </code>
+      <InspectorFooter
+        note={
+          <>
+            <code>{`{{${node.id}}}`}</code> — how later prompts read this node
+          </>
+        }
+      >
         <Button
           size="sm"
           variant="outline"
-          className="h-6 px-2 text-destructive"
+          className="h-7 px-2.5 text-destructive hover:text-destructive"
           onClick={() => {
             setDraft({
               ...draft,
@@ -1881,7 +1891,7 @@ export function GraphEditor({
         >
           Remove node
         </Button>
-      </div>
+      </InspectorFooter>
     </div>
     );
   };

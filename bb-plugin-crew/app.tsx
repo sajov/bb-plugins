@@ -947,8 +947,10 @@ export function TopologyTab({
           {note}
         </p>
       ) : null}
-      {/* Canvas and card side by side on a wide panel; on a phone the card goes under the canvas, as in Graph Studio. */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+      {/* Canvas and card side by side on a wide panel; in a narrow one (a phone, the thread sidebar) the card goes
+          under the canvas, as in Graph Studio. Measured on the panel, not the viewport: the sidebar is narrow on a wide screen. */}
+      <div className="@container">
+      <div className="flex flex-col gap-4 @3xl:flex-row @3xl:items-start">
         <TopologyCanvas
           members={members}
           links={links}
@@ -985,6 +987,7 @@ export function TopologyTab({
             }}
           />
         ) : null}
+      </div>
       </div>
       <TopologyLegend kinds={[...new Set(links.map((link) => link.kind))]} messages={flows.length > 0} />
       <CommsStrip messages={strip} crewName={crew.name} selectedId={messageId} onSelect={setMessageId} />

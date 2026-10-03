@@ -138,7 +138,7 @@ export function MessageCard({
 }) {
   const sender = message.fromAddress.endsWith(`@${crewName}`) ? shortAddress(message.fromAddress, crewName) : null;
   return (
-    <aside aria-label="Message card" className="w-full flex-none rounded-lg border border-border bg-card p-4 text-xs lg:w-[300px]">
+    <aside aria-label="Message card" className="w-full flex-none rounded-lg border border-border bg-card p-4 text-xs @3xl:w-[300px]">
       <div className="mb-1 flex items-center gap-2">
         <h3 className="m-0 min-w-0 flex-1 truncate text-sm font-semibold" title={message.subject}>
           {message.subject || "(no subject)"}

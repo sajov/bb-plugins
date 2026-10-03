@@ -16,6 +16,8 @@ import { crewLayers, MARGIN, pathBetween, placeLayers, slots, type Box } from ".
 import { activityLabel, LINK_STYLE } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Icon } from "@/components/ui/icon";
+import { InspectorFooter, InspectorHeader, InspectorRows } from "./inspector";
 
 /** Graph Studio's card size. */
 export const CARD_W = 172;
@@ -370,7 +372,7 @@ export function TopologyCanvas({
   return (
     <div
       ref={hostRef}
-      className="relative w-full min-w-0 overflow-hidden rounded-lg border border-border bg-background lg:flex-1"
+      className="relative w-full min-w-0 overflow-hidden rounded-lg border border-border bg-background @3xl:flex-1"
       style={{ height }}
       aria-label="Topology"
     >
@@ -540,15 +542,15 @@ export function MemberCard({
   // A BB interaction (approval, provider question) is answered in the thread; a crew_send question here.
   const inThread = view?.needsYou.some((reason) => reason === "approval" || reason === "question") ?? false;
   return (
-    <aside aria-label="Member card" className="w-full flex-none rounded-lg border border-border bg-card p-4 text-xs lg:w-[300px]">
-      <h3 className="m-0 text-sm font-semibold">{member.key}</h3>
-      <div className="mb-3 text-muted-foreground">
-        {member.address}
-        {member.shift !== null ? ` · Shift ${member.shift}` : ""}
-      </div>
+    <aside aria-label="Member card" className="w-full flex-none rounded-lg border border-border bg-card p-4 text-xs @3xl:w-[300px]">
+      <InspectorHeader
+        icon={<Icon name="Bot" className="size-4" />}
+        title={member.key}
+        subtitle={`${member.address}${member.shift !== null ? ` · Shift ${member.shift}` : ""}`}
+      />
       {needs ? (
-        <div className="mb-3 flex flex-col gap-2 rounded-lg border border-[#3a1f22] bg-[#1c1011] p-2.5" data-needs-you="true">
-          <b className="block text-[#ef6b6b]">Needs you</b>
+        <div className="mb-3 flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5" data-needs-you="true">
+          <b className="block text-destructive">Needs you</b>
           {/* One line of context per reason: a bare "loop" with an empty box asked for input nobody could give. */}
           <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="Reasons">
             {view!.needsYou.map((reason) => (
@@ -561,7 +563,7 @@ export function MemberCard({
           {held.length > 0 ? (
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0" aria-label="Held messages">
               {held.map((message) => (
-                <li key={message.id} data-held={message.id} className="rounded-md border border-[#3a1f22] bg-black/30 p-2">
+                <li key={message.id} data-held={message.id} className="rounded-md border border-destructive/20 bg-background p-2">
                   <button type="button" className="w-full text-left" onClick={() => onShowMessage?.(message.id)}>
                     <span className="block truncate font-medium">{message.subject || "(no subject)"}</span>
                     <span className="block truncate text-muted-foreground">
@@ -585,13 +587,13 @@ export function MemberCard({
           ) : null}
           {view!.question ? (
             <>
-              <p className="m-0 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md bg-black/30 p-2 [overflow-wrap:anywhere]">{view!.question}</p>
+              <p className="m-0 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md bg-background p-2 [overflow-wrap:anywhere]">{view!.question}</p>
               {inThread ? null : (
                 <>
                   <textarea
                     aria-label="Answer"
                     placeholder={`Answer ${member.key}…`}
-                    className="h-16 w-full resize-y rounded-md border border-[#1f1f22] bg-transparent p-1.5"
+                    className="h-16 w-full resize-y rounded-md border border-input bg-transparent p-1.5"
                     value={answer}
                     onChange={(event) => setAnswer(event.target.value)}
                   />
@@ -620,39 +622,29 @@ export function MemberCard({
           </Button>
         </div>
       ) : null}
-      <dl className="mb-3 grid grid-cols-[90px_1fr] gap-x-2.5 gap-y-1.5">
-        <dt className="text-muted-foreground">Model</dt>
-        <dd className="m-0">
-          {member.provider ?? "?"} · {shortModel(member.model)}
-        </dd>
-        <dt className="text-muted-foreground">Permissions</dt>
-        <dd className={member.permissions === "full" ? "m-0 text-[#ef6b6b]" : "m-0"}>{member.permissions ?? "?"}</dd>
-        <dt className="text-muted-foreground">Thread</dt>
-        <dd className="m-0">{member.thread === "present" ? (member.status ?? "?") : member.thread}</dd>
-        <dt className="text-muted-foreground">Context</dt>
-        <dd className="m-0">{view?.context !== null && view?.context !== undefined ? `${Math.round(view.context * 100)}%` : "–"}</dd>
-        <dt className="text-muted-foreground">Queue</dt>
-        <dd className="m-0">
-          {view?.openWork ?? 0} open{view && view.held > 0 ? ` · ${view.held} held` : ""}
-        </dd>
-        {view && view.diagnoses.length > 0 ? (
-          <>
-            <dt className="text-muted-foreground">Diagnosis</dt>
-            <dd className="m-0 text-[#d9a441]">{view.diagnoses.join(" · ")}</dd>
-          </>
-        ) : null}
-      </dl>
+      <div className="border-t border-border/60 py-3">
+        <InspectorRows
+          rows={[
+            { label: "Model", value: `${member.provider ?? "?"} · ${shortModel(member.model)}` },
+            { label: "Permissions", value: member.permissions ?? "?", className: member.permissions === "full" ? "text-destructive" : undefined },
+            { label: "Thread", value: member.thread === "present" ? (member.status ?? "?") : member.thread },
+            { label: "Context", value: view?.context !== null && view?.context !== undefined ? `${Math.round(view.context * 100)}%` : "–" },
+            { label: "Queue", value: `${view?.openWork ?? 0} open${view && view.held > 0 ? ` · ${view.held} held` : ""}` },
+            view !== null && view.diagnoses.length > 0 && { label: "Diagnosis", value: view.diagnoses.join(" · "), className: "text-amber-600 dark:text-amber-400" },
+          ]}
+        />
+      </div>
       {view && view.graphRuns && view.graphRuns.length > 0 ? (
-        <ul className="mb-3 flex flex-col gap-1 border-l border-[#1f1f22] pl-2.5 text-xs">
+        <ul className="mb-3 flex flex-col gap-1 border-l border-border pl-2.5 text-xs">
           {view.graphRuns.map((run) => (
             <li key={run.runId} className="flex items-center justify-between gap-2 text-muted-foreground">
               <span>{run.graphId}</span>
-              <span className={run.status === "failed" ? "text-[#ef6b6b]" : run.status === "done" ? "text-[#6bbf6b]" : ""}>{run.status}</span>
+              <span className={run.status === "failed" ? "text-destructive" : run.status === "done" ? "text-emerald-600 dark:text-emerald-400" : ""}>{run.status}</span>
             </li>
           ))}
         </ul>
       ) : null}
-      <div className="flex flex-wrap items-center gap-1.5">
+      <InspectorFooter note={`Click a node to switch the card · double-click opens the thread · ${crewName}`}>
         <Button size="sm" variant="outline" className="h-7" disabled={!member.threadId} onClick={() => onAction("open")}>
           Open
         </Button>
@@ -660,10 +652,7 @@ export function MemberCard({
           Handover
         </Button>
         <ResetSplit disabled={!member.threadId} onAction={onAction} />
-      </div>
-      <p className="mt-3 text-[11px] text-muted-foreground">
-        Click a node to switch the card · double-click opens the thread · {crewName}
-      </p>
+      </InspectorFooter>
     </aside>
   );
 }
