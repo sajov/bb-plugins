@@ -264,7 +264,7 @@ export function ThreadCard({
           }}
           {...(selection === null ? splitProps : {})}
           className={cn(
-            "grid cursor-pointer grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 rounded-lg px-2",
+            "grid cursor-pointer grid-cols-[14px_minmax(0,1fr)_auto] content-center items-center gap-x-2 gap-y-0.5 rounded-lg px-2",
             compact ? "min-h-9 grid-rows-[16px] py-1" : "min-h-12 grid-rows-[16px_16px] py-1.5",
             isActive ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60",
             // A checked box on a 14px glyph is easy to miss while scanning a
@@ -424,8 +424,8 @@ function ChildRow({
         }}
         {...(selection === null ? splitProps : {})}
         className={cn(
-          "flex cursor-pointer items-start gap-2 rounded-md px-2",
-          compact ? "min-h-7 py-0.5" : "min-h-9 py-1",
+          "flex cursor-pointer gap-2 rounded-md px-2",
+          compact ? "min-h-7 items-center py-0.5" : "min-h-9 items-start py-1",
           isActive ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60",
           selection?.selected.has(thread.id) && "bg-sidebar-accent",
         )}
@@ -434,10 +434,10 @@ function ChildRow({
           <ProviderGlyph
             providerId={thread.providerId}
             providers={providers}
-            className="mt-0.5"
+            className={compact ? undefined : "mt-0.5"}
           />
         ) : (
-          <SelectMark thread={thread} selection={selection} className="mt-0.5" />
+          <SelectMark thread={thread} selection={selection} className={compact ? undefined : "mt-0.5"} />
         )}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
