@@ -697,7 +697,6 @@ function SpeechToggle() {
     rpc.call("setThreadSpeech", { threadId, enabled }).then(setState, refetch);
   };
 
-  const scope = "this thread";
   return (
     <Button
       type="button"
@@ -707,8 +706,8 @@ function SpeechToggle() {
       aria-pressed={state.enabled}
       aria-label={
         state.enabled
-          ? `Reading answers aloud in ${scope} — click to stop`
-          : `Not reading answers aloud in ${scope} — click to start`
+          ? `Reading answers aloud in this thread — click to stop`
+          : `Not reading answers aloud in this thread — click to start`
       }
       onClick={() => set(!state.enabled)}
     >
