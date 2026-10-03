@@ -18,7 +18,7 @@ import { CREW_ICON } from "./crew-icon";
 
 const ACTIVITY_CHANNEL = "crew-activity";
 const CREWS_CHANNEL = "crews-changed";
-const CREW_NAME = /^[A-Za-z0-9][\w-]{0,63}$/;
+export const CREW_NAME = /^[A-Za-z0-9][\w-]{0,63}$/;
 
 type BadgeMember = { key: string; address: string; crew: string; projectId: string; shift: number; lead: boolean; handover: string | null; leadThreadId: string | null };
 
@@ -134,7 +134,17 @@ export function CrewDirectiveCard({ attributes, message }: Pick<PluginMessageDir
         ))}
       </ul>
       <div>
-        <Button size="sm" variant="outline" className="h-7" onClick={() => navigate.toPluginPanel("crews")}>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7"
+          onClick={() => {
+            // BBP-49: the sidebar first, as Graph Studio's ::graph-run does; a surface
+            // without a thread side panel (the panel view itself) falls back to the nav panel.
+            const opened = navigate.openThreadPanel({ actionId: "crew", title: `Crew ${crew.name}`, params: { crew: crew.name, projectId } });
+            if (!opened) navigate.toPluginPanel("crews");
+          }}
+        >
           Open in Crews
         </Button>
       </div>

@@ -30,7 +30,7 @@ import type { PluginComposerThreadRowStatus } from "@get-bb/plugin-sdk/app";
 import type { ActivityDto, ChannelDto, CrewDto, MemberDto, MergeDto, MessageDto, OverviewDto, rpcContract, WorkDto } from "./server";
 import { CrewFileEditor } from "./components/crew-file-editor";
 import { CREW_ICON, CrewTeam } from "./components/crew-icon";
-import { ConfirmInteraction, CrewDirectiveCard, MemberBadge } from "./components/crew-surfaces";
+import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, MemberBadge } from "./components/crew-surfaces";
 import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
 import { CommsStrip, MessageCard } from "./components/crew-comms";
 import { CrewBoardCanvas, type BoardLine } from "./components/crew-board";
@@ -1007,6 +1007,61 @@ export function TopologyTab({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Crew thread panel (BBP-49): `::crew{crew="…"}` and the header/palette open
+// this in the thread's side panel, the pattern Graph Studio's `::graph-run`
+// uses for `threadPanelAction` — TopologyTab already draws the member graph
+// on top and the crew log below, so the panel is that tab, not a new layout.
+// Styling here stays minimal; BBP-50 redesigns the config panels.
+
+function crewRefFromParams(params: unknown): { crew: string; projectId: string } | null {
+  if (typeof params !== "object" || params === null) return null;
+  const { crew, projectId } = params as Record<string, unknown>;
+  if (typeof crew !== "string" || typeof projectId !== "string" || !CREW_NAME.test(crew)) return null;
+  return { crew, projectId };
+}
+
+export function CrewDetailPanel({ threadId, params }: { threadId: string; params: unknown }) {
+  const rpc = useRpc<typeof rpcContract>();
+  const direct = useMemo(() => crewRefFromParams(params), [params]);
+  // No params (opened from the header or palette, not a directive): the panel's own thread names its crew.
+  const [ref, setRef] = useState<{ crew: string; projectId: string } | null | undefined>(direct ?? undefined);
+  useEffect(() => {
+    if (direct) return setRef(direct);
+    rpc.call("memberOfThread", { threadId }).then(
+      (result) => setRef(result.member ? { crew: result.member.crew, projectId: result.member.projectId } : null),
+      () => setRef(null),
+    );
+  }, [rpc, threadId, direct]);
+  const [crew, setCrew] = useState<CrewDto | null | undefined>(undefined);
+  const [members, setMembers] = useState<MemberDto[]>([]);
+  const [links, setLinks] = useState<{ from: string; to: string; kind: string }[]>([]);
+  const refetch = useCallback(() => {
+    if (!ref) return;
+    rpc.call("getCrew", { projectId: ref.projectId, name: ref.crew }).then(
+      (result) => {
+        setCrew(result.crew);
+        setMembers(result.members);
+        setLinks(result.links ?? []);
+      },
+      () => setCrew(null),
+    );
+  }, [rpc, ref?.projectId, ref?.crew]);
+  useEffect(refetch, [refetch]);
+  useRealtime(ACTIVITY_CHANNEL, refetch);
+  useRealtime(CREWS_CHANNEL, refetch);
+
+  if (ref === undefined) return <p className="p-3 text-xs text-muted-foreground">Loading…</p>;
+  if (ref === null) return <p className="p-3 text-xs text-muted-foreground">This thread has no crew.</p>;
+  if (crew === undefined) return <p className="p-3 text-xs text-muted-foreground">Crew {ref.crew}: loading…</p>;
+  if (crew === null) return <p className="p-3 text-xs text-muted-foreground">There is no crew “{ref.crew}” in this project.</p>;
+  return (
+    <div className="p-3">
+      <TopologyTab crew={crew} members={members} links={links} onChanged={refetch} />
+    </div>
+  );
+}
+
 /** Confirmation for `deleteCrew`: the crew must be stopped; blockers can be forced past. */
 function DeleteCrewForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string | null, deleted: boolean) => void }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -1567,6 +1622,17 @@ export default definePluginApp((app) => {
   });
   app.slots.experimental_threadHeaderAction({ id: "member-badge", title: "Crew member", component: MemberBadge });
   app.slots.messageDirective({ id: "crew", component: CrewDirectiveCard });
+  app.slots.threadPanelAction({
+    id: "crew",
+    title: "Crew",
+    icon: CREW_ICON,
+    layout: "flush",
+    run: async ({ threadId, openPanel }) => {
+      const member = await crewOfThread(threadId);
+      openPanel(member ? { title: `Crew ${member.crew}`, params: { crew: member.crew, projectId: member.projectId } } : { title: "Crew" });
+    },
+    component: ({ threadId, params }) => <CrewDetailPanel threadId={threadId} params={params} />,
+  });
   app.slots.pendingInteraction({ id: "crew-confirm", component: ConfirmInteraction });
   // Palette commands for the crew of the thread in view (§4.6).
   const needsCrew = ({ threadId }: { threadId: string | null }) => threadId !== null && rpcBridge !== null;
