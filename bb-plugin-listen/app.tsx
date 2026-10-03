@@ -35,7 +35,6 @@ interface State {
   sttModels: ModelState[];
   voices: VoiceState[];
   config: { language: string; voiceModel: string; voiceSid: number };
-  speak: boolean;
   summarize: boolean;
   transcriptionSetting: string;
   active: boolean;
@@ -483,20 +482,14 @@ function ListenSettings() {
       <Section
         title="Voices"
         description={
-          state.speak ? (
-            <>
-              Answers are read aloud
-              {state.summarize
-                ? ", condensed to two or three sentences first."
-                : " in full — turn on “Condense before speaking” above for a short spoken summary instead."}{" "}
-              Install a voice that matches your language.
-            </>
-          ) : (
-            <>
-              Turn on “Read answers aloud” above to hear answers. Install a
-              voice that matches your language first.
-            </>
-          )
+          <>
+            Each thread starts silent — press the speaker beside the
+            microphone to hear its answers
+            {state.summarize
+              ? ", condensed to two or three sentences first."
+              : " in full — turn on “Condense before speaking” above for a short spoken summary instead."}{" "}
+            Install a voice that matches your language.
+          </>
         }
       >
         <ul className="divide-y divide-border">
@@ -675,27 +668,22 @@ function SpeechPlayer() {
  * The speaker button, beside BB's own microphone.
  *
  * Per thread on purpose: whether you want an answer read to you depends on
- * what you are doing in *this* conversation, not on a global preference. The
- * setting stays the default; a thread that presses the button gets its own
- * answer until it is reset with a long press.
+ * what you are doing in *this* conversation, not on a global preference.
+ * Every thread starts silent — like a monitor you switch on for the one
+ * conversation you want to hear, instead of hearing every thread you forgot
+ * to mute.
  */
 function SpeechToggle() {
   const rpc = useRpc<typeof rpcContract>();
   const { threadId } = useBbContext();
   const [state, setState] = useState<{
     enabled: boolean;
-    source: "thread" | "default";
     available: boolean;
   } | null>(null);
 
   const refetch = useCallback(() => {
-    // Without a thread — the new-thread composer — the button shows and sets
-    // the default that the thread about to be created will start from.
-    const call =
-      threadId === null
-        ? rpc.call("defaultSpeech", null)
-        : rpc.call("threadSpeech", { threadId });
-    call.then(setState, () => setState(null));
+    if (threadId === null) return;
+    rpc.call("threadSpeech", { threadId }).then(setState, () => setState(null));
   }, [rpc, threadId]);
 
   useEffect(refetch, [refetch]);
@@ -703,17 +691,13 @@ function SpeechToggle() {
 
   // No speaker while speaking is not set up: a switch that cannot make a
   // sound is noise. `listen-changed` brings it back once a voice installs.
-  if (state === null || !state.available) return null;
+  if (threadId === null || state === null || !state.available) return null;
 
-  const set = (enabled: boolean | null) => {
-    const call =
-      threadId === null
-        ? rpc.call("setDefaultSpeech", { enabled: enabled ?? false })
-        : rpc.call("setThreadSpeech", { threadId, enabled });
-    call.then(setState, refetch);
+  const set = (enabled: boolean) => {
+    rpc.call("setThreadSpeech", { threadId, enabled }).then(setState, refetch);
   };
 
-  const scope = threadId === null ? "new threads" : "this thread";
+  const scope = "this thread";
   return (
     <Button
       type="button"
@@ -727,13 +711,6 @@ function SpeechToggle() {
           : `Not reading answers aloud in ${scope} — click to start`
       }
       onClick={() => set(!state.enabled)}
-      // Right-click hands a thread back to the global setting. Meaningless on
-      // the new-thread composer, which is already editing that setting.
-      onContextMenu={(event) => {
-        if (threadId === null) return;
-        event.preventDefault();
-        set(null);
-      }}
     >
       {state.enabled ? (
         <SpeakerOn className="size-4" />
@@ -775,9 +752,9 @@ export default definePluginApp((app) => {
   // Rendered just before BB's own voice and submit buttons.
   app.composer.customize({
     id: "listen-speech-toggle",
-    // Also on the new-thread composer, where it sets the default the next
-    // thread starts from.
-    scopes: ["thread", "new-thread"],
+    // Not on the new-thread composer: there is no thread to switch yet, and
+    // every new thread starts silent anyway.
+    scopes: ["thread"],
     actions: [{ id: "speech", component: SpeechToggle }],
   });
 });

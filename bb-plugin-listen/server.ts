@@ -62,7 +62,6 @@ export const DEFAULT_SUMMARY_PROMPT = [
  */
 const speechChoiceSchema = z.object({
   enabled: z.boolean(),
-  source: z.enum(["thread", "default"]),
   available: z.boolean(),
 });
 
@@ -74,7 +73,6 @@ export const rpcContract = defineRpcContract({
       sttModels: z.array(modelStateSchema),
       voices: z.array(voiceStateSchema),
       config: hostConfigSchema,
-      speak: z.boolean(),
       summarize: z.boolean(),
       /** The command that points BB's voice input here, assembled for copying. */
       transcriptionSetting: z.string(),
@@ -128,42 +126,21 @@ export const rpcContract = defineRpcContract({
       .nullable(),
   },
 
-  /**
-   * Threads that chose to speak with the composer button. Only explicit
-   * choices: with the setting on, marking every thread would mark nothing.
-   */
+  /** Threads that chose to speak with the composer button. */
   speakingThreads: {
     input: z.null(),
     output: z.object({ threadIds: z.array(z.string()) }),
   },
 
-  /**
-   * Whether this thread speaks, and whether that is its own choice or the
-   * setting's. The composer button needs both: what to show, and whether
-   * "reset to default" is a meaningful action.
-   */
+  /** Whether this thread speaks, for the composer button to render from. */
   threadSpeech: {
     input: z.object({ threadId: z.string() }),
     output: speechChoiceSchema,
   },
 
-  /** `enabled: null` drops the thread's choice and follows the setting again. */
+  /** `enabled: null` drops the thread's choice; every thread starts silent. */
   setThreadSpeech: {
     input: z.object({ threadId: z.string(), enabled: z.boolean().nullable() }),
-    output: speechChoiceSchema,
-  },
-
-  /**
-   * The global default, for the composer of a thread that does not exist yet.
-   * Same shape as `threadSpeech` so the button renders from one type.
-   */
-  defaultSpeech: {
-    input: z.null(),
-    output: speechChoiceSchema,
-  },
-
-  setDefaultSpeech: {
-    input: z.object({ enabled: z.boolean() }),
     output: speechChoiceSchema,
   },
 });
@@ -184,13 +161,6 @@ export default async function plugin(bb: BbPluginApi) {
       description:
         "The model id BB's microphone transcribes with.",
       default: "parakeet-v3",
-    },
-    speak: {
-      type: "boolean",
-      label: "Read answers aloud in new threads",
-      description:
-        "Off means a thread stays silent until you press the speaker button beside its microphone. Reading aloud is a per-thread decision; this is only what a thread starts with.",
-      default: false,
     },
     summarize: {
       type: "boolean",
@@ -354,10 +324,9 @@ export default async function plugin(bb: BbPluginApi) {
     threadId: string,
   ): Promise<z.infer<typeof speechChoiceSchema>> {
     const override = await readThreadSpeech(threadId);
-    const { speak } = await settings.get();
     return {
-      enabled: speaksAloud({ enabled: speak, override }),
-      source: override === null ? "default" : "thread",
+      // Every thread starts silent; only its own button turns speaking on.
+      enabled: speaksAloud({ enabled: false, override }),
       available: await speechAvailable(),
     };
   }
@@ -522,7 +491,7 @@ export default async function plugin(bb: BbPluginApi) {
     void (async () => {
       const values = await settings.get();
       const decision = shouldSpeak(thread, {
-        enabled: values.speak,
+        enabled: false,
         override: await readThreadSpeech(thread.id),
         lastAssistantText,
         ourWorkers,
@@ -574,7 +543,6 @@ export default async function plugin(bb: BbPluginApi) {
         ...state,
         transcriptionSetting: selectCommand(SERVICE_ID),
         active: isSelectedForVoice(config.selections.voice, bb.pluginId, SERVICE_ID),
-        speak: values.speak,
         summarize: values.summarize,
       };
     },
@@ -596,23 +564,6 @@ export default async function plugin(bb: BbPluginApi) {
         sid,
       });
       return { wavBase64: audio.wavBase64 };
-    },
-    defaultSpeech: async () => {
-      const { speak } = await settings.get();
-      return {
-        enabled: speak,
-        source: "default" as const,
-        available: await speechAvailable(),
-      };
-    },
-    setDefaultSpeech: async ({ enabled }) => {
-      await settings.experimental_set({ speak: enabled });
-      bb.realtime.publish(CHANGED, {});
-      return {
-        enabled,
-        source: "default" as const,
-        available: await speechAvailable(),
-      };
     },
     threadSpeech: async ({ threadId }) => describeThreadSpeech(threadId),
     setThreadSpeech: async ({ threadId, enabled }) => {
