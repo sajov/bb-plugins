@@ -33,6 +33,7 @@ export function SectionRow({
   onRename,
   onDissolve,
   onDropThread,
+  onNewThread,
 }: {
   name: string;
   count: number;
@@ -56,6 +57,7 @@ export function SectionRow({
   onRename: (name: string) => void;
   onDissolve: () => void;
   onDropThread: (threadId: string) => void;
+  onNewThread: () => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -128,6 +130,8 @@ export function SectionRow({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-60">
+        <ContextMenuItem onSelect={onNewThread}>New thread</ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem onSelect={onStartRename}>
           Rename section
           <ContextMenuShortcut>
