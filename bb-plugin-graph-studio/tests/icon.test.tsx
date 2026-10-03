@@ -1,19 +1,15 @@
 // @vitest-environment jsdom
 //
-// BBP-17: one glyph everywhere — the sidebar's branding icon — and a button
-// that says "Graph Studio", not "Graph".
+// BBP-17: one glyph everywhere — the sidebar's branding icon.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import {
-  loadPluginApp,
-  renderSlot,
-  type CapturedPluginApp,
-} from "@get-bb/plugin-sdk/testing/app";
+import { loadPluginApp, type CapturedPluginApp } from "@get-bb/plugin-sdk/testing/app";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import graphStudio from "../server";
 import { GRAPH_STUDIO_ICON } from "../lib/icon";
+import { GraphStudioFlow } from "../components/graph-studio-icon";
 
 let app: CapturedPluginApp;
 
@@ -21,14 +17,6 @@ beforeAll(async () => {
   app = await loadPluginApp(() => import("../app"));
 });
 afterEach(cleanup);
-
-function headerButton(isCompactViewport: boolean) {
-  return renderSlot(
-    app.threadHeaderActions[0]! as never,
-    { threadId: "thr_1", projectId: "proj_1", isCompactViewport } as never,
-    { context: { projectId: "proj_1", threadId: "thr_1" } },
-  );
-}
 
 describe("the Graph Studio icon", () => {
   it("is registered once under its own name", () => {
@@ -43,8 +31,8 @@ describe("the Graph Studio icon", () => {
 
   it("draws the same paths as the branding icon assets/icon.svg", () => {
     const branding = readFileSync(join(__dirname, "..", "assets", "icon.svg"), "utf8");
-    const slot = headerButton(false);
-    const svg = slot.container.querySelector(`svg[data-icon="${GRAPH_STUDIO_ICON}"]`);
+    const { container } = render(<GraphStudioFlow />);
+    const svg = container.querySelector(`svg[data-icon="${GRAPH_STUDIO_ICON}"]`);
     expect(svg).not.toBeNull();
     const shapes = [...svg!.querySelectorAll("circle, path")].map((node) =>
       node.tagName === "circle"
@@ -67,22 +55,5 @@ describe("the Graph Studio icon", () => {
     expect(items.length).toBeGreaterThan(0);
     expect(items.every((item) => item.icon === GRAPH_STUDIO_ICON)).toBe(true);
     await host.harness.lifecycle.dispose();
-  });
-});
-
-describe("the thread panel button", () => {
-  it('says "Graph Studio" and shows the glyph', () => {
-    const slot = headerButton(false);
-    const button = slot.getByRole("button", { name: "Open Graph Studio" });
-    expect(button.textContent).toBe("Graph Studio");
-    expect(button.querySelector(`svg[data-icon="${GRAPH_STUDIO_ICON}"]`)).not.toBeNull();
-  });
-
-  it('no longer says just "Graph" (negative), and stays icon-only when compact', () => {
-    expect(headerButton(false).queryByText(/^Graph$/)).toBeNull();
-    cleanup();
-    const compact = headerButton(true).getByRole("button", { name: "Open Graph Studio" });
-    expect(compact.textContent).toBe("");
-    expect(compact.querySelector(`svg[data-icon="${GRAPH_STUDIO_ICON}"]`)).not.toBeNull();
   });
 });

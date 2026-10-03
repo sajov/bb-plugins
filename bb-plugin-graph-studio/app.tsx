@@ -1,9 +1,6 @@
 // bb-plugin-graph-studio — frontend entry.
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
-import {
-  GraphStudioHeaderAction,
-  GraphStudioPanel,
-} from "./components/graph-studio-panel";
+import { GraphStudioPanel } from "./components/graph-studio-panel";
 import { GraphStudioRunBanner } from "./components/run-banner";
 import { GraphRunCard } from "./components/run-card";
 import { GRAPH_STUDIO_ICON, GraphStudioFlow } from "./components/graph-studio-icon";
@@ -50,12 +47,6 @@ export default definePluginApp((app) => {
   // The run inline in the message that started it: `::graph-run{run="…"}`,
   // which graph_studio_run tells the agent to put in its reply.
   app.slots.messageDirective({ id: "graph-run", component: GraphRunCard });
-
-  app.slots.experimental_threadHeaderAction({
-    id: "open-graph-studio",
-    title: "Graph Studio",
-    component: GraphStudioHeaderAction,
-  });
 
   app.slots.commandPaletteAction({
     id: "open-graph-studio",

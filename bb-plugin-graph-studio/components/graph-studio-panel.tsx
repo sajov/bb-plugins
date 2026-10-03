@@ -1236,26 +1236,3 @@ export function GraphStudioPanel({
     </div>
   );
 }
-
-export function GraphStudioHeaderAction({
-  isCompactViewport,
-}: {
-  threadId: string;
-  projectId: string;
-  isCompactViewport: boolean;
-}) {
-  const navigate = useBbNavigate();
-  return (
-    <Button
-      size={isCompactViewport ? "icon" : "sm"}
-      variant="ghost"
-      aria-label="Open Graph Studio"
-      onClick={() =>
-        navigate.openThreadPanel({ actionId: "studio", title: "Graph Studio" })
-      }
-    >
-      <GraphStudioFlow className="size-4" />
-      {isCompactViewport ? null : "Graph Studio"}
-    </Button>
-  );
-}
