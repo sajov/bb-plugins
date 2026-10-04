@@ -280,13 +280,20 @@ describe("crew sidepanel chrome (BBP-79)", () => {
     );
 
     fireEvent.click(slot.getByRole("button", { name: "Edit" }));
+    await slot.findByRole("dialog", { name: "Edit crew p1 — trio — full screen" });
+    fireEvent.click(slot.getByRole("button", { name: /Leave full screen/ }));
+
     fireEvent.click(slot.getByRole("button", { name: "New" }));
-    expect(slot.navigateCalls.map((call) => call.method)).toEqual(["toPluginPanel", "toPluginPanel"]);
+    expect(slot.navigateCalls.map((call) => call.method)).toEqual(["toPluginPanel"]);
 
     expect(slot.getByText("bb crew apply trio")).toBeTruthy();
     const preview = slot.getByText("Preview");
     const canvas = slot.container.querySelector('[aria-label="Topology"]')!;
     expect(preview.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // mockup 1: group/role label, status dot and a model chip on every member card.
+    const leadCard = canvas.querySelector('[data-member-node="orch-lead"]')!;
+    expect(leadCard.textContent).toContain("lead");
+    expect(leadCard.querySelector("[data-member-meta] span")!.textContent).toBe("haiku-4-5");
     expect(select.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     slot.lifecycle.unmount();
   });

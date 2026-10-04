@@ -1073,6 +1073,7 @@ export function CrewDetailPanel({ threadId, params }: { threadId: string; params
   const [links, setLinks] = useState<{ from: string; to: string; kind: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [editYaml, setEditYaml] = useState<string | null>(null);
   const refetch = useCallback(() => {
     if (!ref) return;
     rpc.call("listCrews", { projectId: ref.projectId }).then((result) => setCrews(result.crews), () => undefined);
@@ -1120,9 +1121,34 @@ export function CrewDetailPanel({ threadId, params }: { threadId: string; params
         }}
         onApply={() => void act(() => rpc.call("apply", { projectId: ref.projectId, ref: ref.crew }))}
         onStop={() => void act(() => rpc.call("stop", { projectId: ref.projectId, name: ref.crew, archive: false }))}
-        onEdit={() => navigate.toPluginPanel("crews")}
+        onEdit={() =>
+          void rpc.call("getCrewFile", { projectId: ref.projectId, name: ref.crew }).then(
+            (result) => setEditYaml(result.yaml ?? ""),
+            (cause: unknown) => setNote(cause instanceof Error ? cause.message : String(cause)),
+          )
+        }
         onNew={() => navigate.toPluginPanel("crews")}
       />
+      {editYaml !== null ? (
+        <CrewEditFullscreen
+          title={`${crew.projectName ?? crew.projectId} — ${crew.name}`}
+          initialYaml={editYaml}
+          statuses={Object.fromEntries(members.flatMap((m) => (m.status ? [[m.key, m.status]] : [])))}
+          onSave={async (text) => {
+            const result = await rpc.call("saveCrewFile", { projectId: ref.projectId, yaml: text });
+            const errors = result.problems.filter((problem) => problem.level === "error");
+            if (errors.length > 0 || !result.crew) return errors.map((problem) => problem.message).join("; ") || "The crew file was not saved.";
+            refetch();
+            return null;
+          }}
+          onReload={async () => (await rpc.call("getCrewFile", { projectId: ref.projectId, name: ref.crew })).yaml ?? ""}
+          onOverview={() => {
+            setEditYaml(null);
+            navigate.toPluginPanel("crews");
+          }}
+          onClose={() => setEditYaml(null)}
+        />
+      ) : null}
       {note ? (
         <p role="status" className="mt-2 text-xs text-muted-foreground">
           {note}
