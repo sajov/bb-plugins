@@ -16,7 +16,7 @@
 import { useEffect, useRef } from "react";
 import { Icon } from "@/components/ui/icon";
 import { RowCount } from "@/components/sidenav/row-slots";
-import { MAX_QUERY_LENGTH, tagPrefix, tagSuggestions } from "@/lib/search";
+import { MAX_QUERY_LENGTH, matchesQuery, tagPrefix, tagSuggestions } from "@/lib/search";
 
 function TagChip({
   tag,
@@ -68,8 +68,8 @@ function ProjectChip({
       onClick={onClick}
       className={
         picked
-          ? "flex shrink-0 items-center gap-1 rounded-full border border-border bg-sidebar-accent px-1.5 text-2xs text-foreground"
-          : "flex shrink-0 items-center gap-1 rounded-full border border-border-hairline px-1.5 text-2xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+          ? "flex min-w-0 max-w-40 items-center gap-1 rounded-full border border-border bg-sidebar-accent px-1.5 text-2xs text-foreground"
+          : "flex min-w-0 max-w-40 items-center gap-1 rounded-full border border-border-hairline px-1.5 text-2xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
       }
     >
       <Icon name="Folder" className="size-2.5 shrink-0 opacity-60" aria-hidden />
@@ -133,6 +133,11 @@ export function SearchSlot({
   const typed = query.trim().length > 0;
   const prefix = tagPrefix(query);
   const offered = tagSuggestions(knownTags, activeTags, prefix);
+  // The project offer follows what is typed, so a name narrows it to the one
+  // project you meant instead of leaving every project on screen.
+  const offeredProjects = knownProjects.filter(
+    (project) => !activeProjects.includes(project.id) && matchesQuery(project.name, query),
+  );
   return (
     <div className="shrink-0 border-b border-border-hairline">
     <div className="flex min-h-7 flex-wrap items-center gap-1.5 px-3 py-1">
@@ -174,10 +179,21 @@ export function SearchSlot({
             }
             return;
           }
-          if (event.key === "Backspace" && query.length === 0 && activeTags.length > 0) {
-            event.preventDefault();
-            onToggleTag(activeTags[activeTags.length - 1]);
-            return;
+          if (event.key === "Backspace" && query.length === 0) {
+            // The last chip goes first; project chips sit after the tag chips.
+            const lastProject = [...activeProjects]
+              .reverse()
+              .find((projectId) => knownProjects.some((entry) => entry.id === projectId));
+            if (lastProject !== undefined) {
+              event.preventDefault();
+              onToggleProject(lastProject);
+              return;
+            }
+            if (activeTags.length > 0) {
+              event.preventDefault();
+              onToggleTag(activeTags[activeTags.length - 1]);
+              return;
+            }
           }
           if (event.key !== "Escape") return;
           event.preventDefault();
@@ -226,20 +242,18 @@ export function SearchSlot({
     ) : null}
     {/* Projects, as their own filter entries below the tags. Hidden while
         browsing tags with `#` so the two offers never mix in one list. */}
-    {prefix === null && knownProjects.length > activeProjects.length ? (
+    {prefix === null && offeredProjects.length > 0 ? (
       <div className="px-3 pb-1.5">
         <div className="pb-1 text-2xs font-medium text-muted-foreground/70">Projects</div>
         <div className="flex max-h-12 flex-wrap gap-1 overflow-y-auto">
-          {knownProjects
-            .filter((project) => !activeProjects.includes(project.id))
-            .map((project) => (
-              <ProjectChip
-                key={project.id}
-                name={project.name}
-                picked={false}
-                onClick={() => onToggleProject(project.id)}
-              />
-            ))}
+          {offeredProjects.map((project) => (
+            <ProjectChip
+              key={project.id}
+              name={project.name}
+              picked={false}
+              onClick={() => onToggleProject(project.id)}
+            />
+          ))}
         </div>
       </div>
     ) : null}
