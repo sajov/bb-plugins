@@ -93,6 +93,7 @@ const card = (overrides: Partial<OverviewDto["crews"][number]>): OverviewDto["cr
   needsYou: 0,
   members: [{ key: "orch-lead", lead: true, activity: "idle", needsYou: [] }],
   labelTasks: [],
+  crossCrew: "leads",
   ...overrides,
 });
 const overview = (overrides: Partial<OverviewDto>): OverviewDto => ({

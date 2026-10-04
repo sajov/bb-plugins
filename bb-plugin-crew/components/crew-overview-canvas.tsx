@@ -31,7 +31,7 @@ import { layoutOverview, type NodeSize } from "../lib/overview-layout";
 import { RUNNING, SEVERITY_COLOR, SEVERITY_TEXT, SEVERITY_TEXT_COLOR, topReasonLabel } from "../lib/topology";
 import type { ActivityDto, MemberDto, WorkDto } from "../server";
 import { AGENT_H, AGENT_W, AgentNodeView, currentWork } from "./crew-agent-node";
-import { buildCrewCanvas, MemberNode, PathEdge, TopologyMarkers, type MemberAction, type PathEdgeData } from "./crew-topology";
+import { buildCrewCanvas, MemberNode, PathEdge, TopologyLegend, TopologyMarkers, type MemberAction, type PathEdgeData } from "./crew-topology";
 import { colorLightness, FLOW_THEME as BASE_FLOW_THEME, useHostColorMode } from "./crew-topology";
 
 export { buildOverviewGraph, filterOverviewGraph, type OverviewFilters, type OverviewGraph, type OverviewProject, type OverviewSource };
@@ -200,9 +200,25 @@ function TaskCrewEdgeView({ id, sourceX, sourceY, targetX, targetY, data }: Edge
   );
 }
 
-function LeadLeadEdgeView({ sourceX, sourceY, targetX, targetY }: EdgeProps<Edge>) {
+type LeadLeadEdgeData = { active: boolean; count: number };
+/** BBP-97: grey dashed = an allowed but idle path; blue animated with a count = actual traffic. */
+function LeadLeadEdgeView({ id, sourceX, sourceY, targetX, targetY, data }: EdgeProps<Edge<LeadLeadEdgeData>>) {
   const path = `M ${sourceX},${sourceY} L ${targetX},${targetY}`;
-  return <path d={path} fill="none" stroke="var(--muted-foreground)" strokeWidth={1.25} strokeDasharray="5 4" opacity={0.6} />;
+  const active = data?.active ?? false;
+  if (!active) return <path d={path} fill="none" stroke="var(--muted-foreground)" strokeWidth={1.25} strokeDasharray="5 4" opacity={0.6} />;
+  const midX = (sourceX + targetX) / 2;
+  const midY = (sourceY + targetY) / 2;
+  return (
+    <g data-lead-lead-edge={id} data-active="true">
+      <path d={path} fill="none" stroke="var(--primary)" strokeWidth={1.75} opacity={0.9} />
+      <circle r={3} fill="var(--primary)">
+        <animateMotion dur="1.4s" repeatCount="indefinite" path={path} />
+      </circle>
+      <text x={midX} y={midY - 6} textAnchor="middle" fontSize={10} fill="var(--primary)">
+        {data!.count}
+      </text>
+    </g>
+  );
 }
 
 /** A member link: the topology's own path, moved to where the crew sits on this canvas. */
@@ -328,7 +344,7 @@ export function OverviewCanvas({
     source: edge.from,
     target: edge.to,
     type: edge.kind,
-    data: edge.kind === "task-crew" ? { active: edge.active } : undefined,
+    data: edge.kind === "task-crew" ? { active: edge.active } : edge.kind === "lead-lead" ? { active: edge.active, count: edge.count } : undefined,
   }));
 
   // Levels 2 and 3: the members inside the opened crew, and the agent card over its member.
@@ -425,6 +441,11 @@ export function OverviewCanvas({
           <Fit focus={focus} layoutKey={`${layout.width}x${layout.height}`} />
         </ReactFlow>
       </ReactFlowProvider>
+      {/* BBP-97: the same line language as the Topology tab, shown here too — task→crew edges read
+          as "assigns", idle lead↔lead edges as "works with", traffic on either as "messages". */}
+      <div className="absolute bottom-2 left-2 z-10 rounded-md bg-background/80 px-2 py-1 backdrop-blur-sm">
+        <TopologyLegend kinds={["assigns_to", "works_with"]} messages={edges.some((edge) => edge.kind === "lead-lead" && edge.active)} />
+      </div>
       {/* The opened crew's links as text: React Flow draws edges only after measuring, and screen readers need them anyway. */}
       {expanded ? (
         <ul className="sr-only" aria-label="Links">
