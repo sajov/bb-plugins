@@ -217,15 +217,14 @@ const backend = (messages: MessageDto[], calls: unknown[] = []) => ({
   getActivity: () => ({ members: [] }),
   listMessages: (input: unknown) => (calls.push(input), { messages }),
   rowStatuses: () => ({ rows: [], needsYou: 0 }),
-  projectOverview: () => ({ crews: [], leadLinks: [], dependencies: [], threads: { limit: null, source: "bb", running: null, members: 0 } }),
+  projectOverview: () => ({ crews: [{ name: "trio", status: "running", summary: "", task: null, branch: null, behind: 0, merge: null, needsYou: 0, members: [] }], leadLinks: [], dependencies: [], threads: { limit: null, source: "bb", running: null, members: 0 } }),
   listChannel: () => ({ posts: [] }),
   listWork: () => ({ items: [] }),
   openMembers: () => ({ opened: [], error: null }),
 });
 
 async function openTopology(slot: { findByRole: (role: string, options: { name: string }) => Promise<HTMLElement> }) {
-  const list = await slot.findByRole("list", { name: "Crews" });
-  fireEvent.click(within(list).getByRole("button", { name: "trio" }));
+  fireEvent.click(await slot.findByRole("button", { name: "trio" }));
 }
 
 describe("topology communication", () => {

@@ -104,8 +104,7 @@ const overview = (overrides: Partial<OverviewDto>): OverviewDto => ({
 
 /** The overview is the entry; the crew view opens from the crew list. */
 async function openCrew(slot: { findByRole: (role: string, options: { name: string }) => Promise<HTMLElement> }, tab = "Table & Feed") {
-  const list = await slot.findByRole("list", { name: "Crews" });
-  fireEvent.click(within(list).getByRole("button", { name: "trio" }));
+  fireEvent.click(await slot.findByRole("button", { name: "trio" }));
   // Topology is the first tab; most tests look at Table & Feed.
   fireEvent.click(await slot.findByRole("button", { name: tab }));
 }
@@ -430,7 +429,7 @@ describe("Project overview (E3)", () => {
     slot.lifecycle.unmount();
   });
 
-  it("stopped crews of the project are cards marked stopped and counted; other projects sit behind the project switch, not in Crews", async () => {
+  it("stopped crews of the project are cards marked stopped and counted; other projects sit behind the project switch", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const halted = { ...crew, id: "p1:halted", name: "halted", status: "stopped" as const };
     const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15", status: "stopped" as const, projectName: "Graph Studio" };
@@ -440,10 +439,9 @@ describe("Project overview (E3)", () => {
         projectOverview: () => overview({ crews: [card({}), card({ name: "halted", status: "stopped" })] }),
       }),
     });
-    const here = await slot.findByRole("list", { name: "Crews" });
-    expect(within(here).getAllByRole("button").map((b) => b.textContent)).toEqual(["trio", "halted"]);
-    // negative: no second row of chips for the rest
-    expect(slot.queryByText("Other projects")).toBeNull();
+    await slot.findByLabelText("Project overview");
+    // negative: no row of crew chips — the cards on the board are the crews
+    expect(slot.queryByRole("list", { name: "Crews" })).toBeNull();
     const project = slot.getByLabelText("Project") as HTMLSelectElement;
     expect(Array.from(project.options).map((o) => o.textContent)).toEqual(["BB Plugins (2)", "Graph Studio (1)"]);
     expect(slot.container.querySelector("[data-crew-count]")!.textContent).toBe("2 crews · 1 stopped");
@@ -465,7 +463,7 @@ describe("Project overview (E3)", () => {
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
       rpc: backend({ listCrews: () => ({ crews: [crew, foreign] }), rowStatuses: () => ({ rows: [], needsYou: 3, byProject: { p2: 3 } }) }),
     });
-    await slot.findByRole("list", { name: "Crews" });
+    await slot.findByLabelText("Project");
     await waitFor(() => {
       const labels = Array.from((slot.getByLabelText("Project") as HTMLSelectElement).options).map((o) => o.textContent);
       expect(labels).toEqual(["p1 (1)", "p2 (1) · 3 need you"]);
@@ -483,9 +481,8 @@ describe("Project overview (E3)", () => {
         projectOverview: (input: never) => (asked.push(input), overview({})),
       }),
     });
-    await slot.findByRole("list", { name: "Crews" });
+    await slot.findByLabelText("Project");
     fireEvent.change(slot.getByLabelText("Project"), { target: { value: "p2" } });
-    await waitFor(() => expect(within(slot.getByRole("list", { name: "Crews" })).getAllByRole("button").map((b) => b.textContent)).toEqual(["gs15"]));
     await waitFor(() => expect(asked).toContainEqual({ projectId: "p2" }));
     slot.lifecycle.unmount();
   });
@@ -493,11 +490,41 @@ describe("Project overview (E3)", () => {
   it("negative: with one project and no stopped crew there is no project switch and no stopped count", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend() });
-    await slot.findByRole("list", { name: "Crews" });
+    await slot.findByLabelText("Project overview");
     expect(slot.queryByLabelText("Project")).toBeNull();
     expect(slot.container.querySelector("[data-crew-count]")!.textContent).toBe("1 crews");
     await waitFor(() => expect(slot.container.querySelector("[data-crew-card]")).not.toBeNull());
     expect(slot.container.querySelector("[data-card-status]")).toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("BBP-81: a Graph Studio header — title, status, Diagram action — over a board that fills the page", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend({ listCrews: () => ({ crews: [{ ...crew, projectName: "BB Plugins" }] }) }) });
+    const header = await slot.findByRole("banner", { name: "Overview header" });
+    expect(within(header).getByText("BB Plugins")).toBeTruthy();
+    expect(header.querySelector("[data-crew-count]")!.textContent).toBe("1 crews");
+    expect(within(header).getByRole("button", { name: "Diagram" })).toBeTruthy();
+    const board = await slot.findByLabelText("Crew board");
+    // Fills the height it is given instead of a fixed pixel height.
+    expect(board.style.height).toBe("");
+    expect(board.className).toContain("flex-1");
+    // Zoom controls sit in the bottom-left corner, as in Graph Studio.
+    await waitFor(() => expect(board.querySelector(".react-flow__panel.bottom.left .react-flow__controls, .react-flow__controls.bottom.left")).not.toBeNull());
+    slot.lifecycle.unmount();
+  });
+
+  it("BBP-81: lead communication uses theme tokens; negative: no hard-coded dark surface on it or its filters", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend() });
+    const feed = await slot.findByRole("region", { name: "Lead communication" });
+    expect(feed.className).toContain("bg-card");
+    expect(feed.className).not.toMatch(/#0b0b0c|#1f1f22/);
+    for (const label of ["Filter by crew", "Filter by status"]) {
+      const select = within(feed).getByLabelText(label);
+      expect(select.className).toContain("bg-background");
+      expect(select.className).toContain("text-foreground");
+    }
     slot.lifecycle.unmount();
   });
 
