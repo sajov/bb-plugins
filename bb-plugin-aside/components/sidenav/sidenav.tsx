@@ -877,6 +877,7 @@ export function Sidenav({
                           onNewThread={() =>
                             actions.openNewThread({
                               projectId: block.project.id,
+                              sectionId: sectionBlock.section!.id,
                               focusPrompt: true,
                             })
                           }
