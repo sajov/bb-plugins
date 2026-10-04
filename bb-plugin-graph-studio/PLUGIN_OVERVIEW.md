@@ -66,8 +66,8 @@ finished nodes.
 
 ## Keep a graph in your repo
 
-Graphs live centrally, so one you build is available in every project. To
-version or share one, export it to a file and import it elsewhere:
+Graphs live centrally and are available in every project. To version or
+share one, export and import it:
 
 ```sh
 bb graph-studio export my-graph > .bb/graphs/my-graph.graph.json
@@ -87,9 +87,8 @@ tools.
 
 ## Requirements
 
-Requires BB 0.42 or later and Plugin SDK 0.5.29 or later. No extra service,
-account or API key is needed — runs use the providers BB is already configured
-with.
+Requires BB 0.42+ and Plugin SDK 0.5.29+. No extra service, account or API
+key — runs use the providers BB already has.
 
 The Work templates run their steps on
 [Matt Pocock's skills](https://github.com/mattpocock/skills). Install them
