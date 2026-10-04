@@ -6,3 +6,6 @@ dist/
 
 # BB creates this folder itself; it belongs to the host, not the repo.
 .bb/
+
+# Internal working notes, not part of the published repo.
+docs/podman-machine/
