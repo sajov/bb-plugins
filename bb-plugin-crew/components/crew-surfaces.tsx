@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginMessageDirectiveProps, PluginPendingInteractionProps, PluginThreadHeaderActionProps } from "@get-bb/plugin-sdk/app";
 import type { ActivityDto, CrewDto, rpcContract } from "../server";
-import { activityTone, reasonCounts, topReasonLabel } from "../lib/topology";
+import { activityTone, reasonCounts, SEVERITY_TEXT, severityTint, topReasonLabel } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -125,11 +125,11 @@ export function CrewDirectiveCard({ attributes, message }: Pick<PluginMessageDir
         <span className="text-muted-foreground">
           {crew.status} · {views.length} members · file v{crew.fileVersion}
         </span>
-        {errors > 0 ? <span className="ml-auto rounded-full border border-destructive/40 bg-destructive/10 px-2 text-destructive">{errors} error{errors === 1 ? "" : "s"}</span> : null}
+        {errors > 0 ? <span className={cn("ml-auto rounded-full border px-2", SEVERITY_TEXT.error)} style={severityTint("error", 10, 40)}>{errors} error{errors === 1 ? "" : "s"}</span> : null}
         {decisions > 0 ? (
           <span
-            className={cn("rounded-full border px-2 text-[color:var(--warning-text,var(--warning))]", errors === 0 && "ml-auto")}
-            style={{ borderColor: "color-mix(in oklab, var(--warning) 40%, transparent)", background: "color-mix(in oklab, var(--warning) 10%, transparent)" }}
+            className={cn("rounded-full border px-2", SEVERITY_TEXT.decision, errors === 0 && "ml-auto")}
+            style={severityTint("decision", 10, 40)}
           >
             {decisions} waiting
           </span>

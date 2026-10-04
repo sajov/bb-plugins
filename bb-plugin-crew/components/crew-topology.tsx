@@ -13,7 +13,7 @@ import "@xyflow/react/dist/style.css";
 import type { ActivityDto, MemberDto, MessageDto } from "../server";
 import { shownFlows, type Flow } from "../lib/comms";
 import { crewLayers, MARGIN, pathBetween, placeLayers, slots, type Box } from "../lib/canvas-layout";
-import { activityLabel, activityTone, hasErrorReason, LINK_STYLE, RUNNING, topReasonLabel } from "../lib/topology";
+import { activityLabel, activityTone, hasErrorReason, LINK_STYLE, RUNNING, SEVERITY_TEXT, SEVERITY_TEXT_COLOR, severityTint, topReasonLabel } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
@@ -105,7 +105,7 @@ export function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
         ) : null}
         <div className="relative flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.06em] text-muted-foreground">
           <span className="truncate">{member.lead ? "lead" : member.groupId || "member"}</span>
-          <span className="flex shrink-0 items-center gap-1 normal-case tracking-normal" style={needs ? { color: visual === "decision" ? "var(--warning-text)" : "var(--destructive-text)" } : undefined}>
+          <span className="flex shrink-0 items-center gap-1 normal-case tracking-normal" style={needs ? { color: SEVERITY_TEXT_COLOR[visual === "decision" ? "decision" : "error"] } : undefined}>
             <span aria-hidden className={cn("size-1.5 rounded-full", visual === "running" && "animate-pulse")} style={{ background: DOT[visual] }} />
             {reason ?? (visual === "running" ? "working" : visual === "failed" ? "error" : null)}
           </span>
@@ -575,11 +575,11 @@ export function MemberCard({
       />
       {needs ? (
         <div
-          className={cn("mb-3 flex flex-col gap-2 rounded-lg border p-2.5", isError && "border-destructive/30 bg-destructive/5")}
-          style={!isError ? { borderColor: "color-mix(in oklab, var(--warning) 30%, transparent)", background: "color-mix(in oklab, var(--warning) 5%, transparent)" } : undefined}
+          className="mb-3 flex flex-col gap-2 rounded-lg border p-2.5"
+          style={severityTint(isError ? "error" : "decision", 5, 30)}
           data-needs-you="true"
         >
-          <b className={cn("block", isError ? "text-destructive-text" : "text-warning-text")}>{isError ? "Error" : "Needs a decision"}</b>
+          <b className={cn("block", SEVERITY_TEXT[isError ? "error" : "decision"])}>{isError ? "Error" : "Needs a decision"}</b>
           {/* One line of context per reason: a bare "loop" with an empty box asked for input nobody could give. */}
           <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="Reasons">
             {view!.needsYou.map((reason) => (

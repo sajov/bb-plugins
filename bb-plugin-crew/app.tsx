@@ -39,7 +39,7 @@ import { CrewEditFullscreen } from "./components/crew-edit-fullscreen";
 import { breadcrumb, zoomLevel, zoomOut, type ZoomPath } from "./lib/zoom-path";
 import { CommsStrip, MessageCard } from "./components/crew-comms";
 import { flowOf, messageFlows, recentFlowIds, timeline } from "./lib/comms";
-import { activityLabel, activityTone, hasErrorReason, reasonCounts, topReasonLabel } from "./lib/topology";
+import { activityLabel, activityTone, hasErrorReason, reasonCounts, SEVERITY_COLOR, SEVERITY_TEXT, severityTint, topReasonLabel } from "./lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -131,14 +131,14 @@ export function NeedsYouBadge({ errors, decisions, onClick, title }: { errors: n
   return (
     <button type="button" onClick={onClick} title={title} className="flex items-center gap-1.5">
       {errors > 0 ? (
-        <span className="flex items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-2.5 py-0.5 text-xs text-destructive-text">
-          <span className="inline-block size-2 rounded-full bg-destructive" />
+        <span className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs", SEVERITY_TEXT.error)} style={severityTint("error", 10, 30)}>
+          <span className="inline-block size-2 rounded-full" style={{ background: SEVERITY_COLOR.error }} />
           {errors} error{errors === 1 ? "" : "s"}
         </span>
       ) : null}
       {decisions > 0 ? (
-        <span className="flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-xs text-warning-text">
-          <span className="inline-block size-2 rounded-full bg-warning" />
+        <span className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs", SEVERITY_TEXT.decision)} style={severityTint("decision", 10, 30)}>
+          <span className="inline-block size-2 rounded-full" style={{ background: SEVERITY_COLOR.decision }} />
           {decisions} waiting on you
         </span>
       ) : null}
@@ -150,12 +150,13 @@ function SidebarAccessory() {
   useRpcBridge();
   const { errors, decisions } = useNeedsYou();
   if (errors === 0 && decisions === 0) return null;
-  const tone = errors > 0 ? "red" : "amber";
+  const severity = errors > 0 ? "error" : "decision";
   const count = errors + decisions;
   return (
     <span
       aria-label={`${count} Needs you`}
-      className={cn("rounded-full px-1.5 text-[10px] font-medium leading-4", tone === "red" ? "bg-destructive/15 text-destructive-text" : "bg-warning/15 text-warning-text")}
+      className={cn("rounded-full px-1.5 text-[10px] font-medium leading-4", SEVERITY_TEXT[severity])}
+      style={severityTint(severity, 15)}
     >
       {count}
     </span>
@@ -238,7 +239,8 @@ export function MembersTable({
             <tr
               key={member.key}
               data-needs-you={needs ? "true" : undefined}
-              className={cn("max-sm:block max-sm:py-2 [&>td]:max-sm:block [&>td]:max-sm:py-0.5", needs && (isError ? "bg-destructive/5" : "bg-warning/5"))}
+              className={cn("max-sm:block max-sm:py-2 [&>td]:max-sm:block [&>td]:max-sm:py-0.5", )}
+              style={needs ? severityTint(isError ? "error" : "decision", 5) : undefined}
             >
               <td className="py-2 pr-3 align-top font-mono text-xs">
                 {member.address}
@@ -259,7 +261,7 @@ export function MembersTable({
                     </span>
                     {view.diagnoses.length > 0 ? <span className="text-xs text-amber-400">{view.diagnoses.join(" · ")}</span> : null}
                     {view.question ? (
-                      <div className={cn("rounded-md border p-2 text-xs", isError ? "border-destructive/30 bg-destructive/10" : "border-warning/30 bg-warning/10")}>
+                      <div className="rounded-md border p-2 text-xs" style={severityTint(isError ? "error" : "decision", 10, 30)}>
                         <p className="whitespace-pre-wrap">{view.question}</p>
                         {onReply ? (
                           <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => onReply(member.address)}>
@@ -679,7 +681,7 @@ export function ChannelSection({ crew }: { crew: CrewDto }) {
   return (
     <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Channel</h4>
-      {error ? <p className="text-xs text-destructive-text">{error}</p> : null}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
       {posts.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nothing in the channel yet.</p>
       ) : (
@@ -1082,17 +1084,17 @@ function DeleteCrewForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string
       )}
       {blockers.length > 0 ? (
         <>
-          <ul aria-label="Delete blockers" className="mt-2 list-disc pl-4 text-xs text-destructive-text">
+          <ul aria-label="Delete blockers" className="mt-2 list-disc pl-4 text-xs text-destructive">
             {blockers.map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>
-          <label className="mt-1 flex items-center gap-1.5 text-xs text-destructive-text">
+          <label className="mt-1 flex items-center gap-1.5 text-xs text-destructive">
             <input type="checkbox" aria-label="Delete anyway" checked={force} onChange={(e) => setForce(e.target.checked)} /> Delete anyway
           </label>
         </>
       ) : null}
-      {error && blockers.length === 0 ? <p role="alert" className="mt-2 text-xs text-destructive-text">{error}</p> : null}
+      {error && blockers.length === 0 ? <p role="alert" className="mt-2 text-xs text-destructive">{error}</p> : null}
       <div className="mt-2 flex gap-2">
         <Button
           size="sm"
@@ -1167,11 +1169,11 @@ function AddMemberForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string 
         />
       </div>
       {values.permissions === "full" ? (
-        <label className="mt-2 flex items-center gap-1.5 text-xs text-destructive-text">
+        <label className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
           <input type="checkbox" aria-label="Confirm full permissions" checked={confirmFull} onChange={(e) => setConfirmFull(e.target.checked)} /> I confirm permissions: full
         </label>
       ) : null}
-      {error ? <p role="alert" className="mt-2 text-xs text-destructive-text">{error}</p> : null}
+      {error ? <p role="alert" className="mt-2 text-xs text-destructive">{error}</p> : null}
       <div className="mt-2 flex gap-2">
         <Button
           size="sm"
