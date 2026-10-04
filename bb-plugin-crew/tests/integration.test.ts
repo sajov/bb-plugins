@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLocalGit } from "../lib/integration";
+import { createLocalGit, REJECT_LIMIT } from "../lib/integration";
 import { labelFor } from "../lib/dependencies";
 import { isIntegrator, validateCrew } from "../lib/spec";
 import { duoYaml, PROJECT, running, setup } from "./helpers";
@@ -127,17 +127,7 @@ describe("integrator", () => {
     expect(await needs(alpha, "core-lead")).not.toContain("merge-request");
   });
 
-  it("negative: red checks, a conflict or no checks command send it back to the human; nothing is merged on red", async () => {
-    const red = await twoCrews({ integrator: true, alpha: { checks: "npm test" } });
-    red.git.checksResult = { ok: false, output: "1 failing" };
-    const a = await red.service.integration.request(red.alpha.crew, "x");
-    const afterRed = await red.service.integration.integratorMerge(a.merge.id, red.ops!.members["ops-int"]!);
-    expect(afterRed).toMatchObject({ state: "returned", checksOutput: "1 failing" });
-    expect(red.git.count("merge")).toBe(0);
-    expect(await red.needs(red.alpha, "core-lead")).toContain("merge-request");
-    // It is the human's now; the integrator cannot retry it.
-    await expect(red.service.integration.integratorMerge(a.merge.id, red.ops!.members["ops-int"]!)).rejects.toThrow("the human's now");
-
+  it("negative: a conflict or no checks command send it back to the human; nothing is merged on red", async () => {
     const conflict = await twoCrews({ integrator: true, alpha: { checks: "npm test" } });
     conflict.git.mergeResult = { ok: false, conflict: true, detail: "CONFLICT" };
     const b = await conflict.service.integration.request(conflict.alpha.crew, "x");
@@ -148,6 +138,47 @@ describe("integrator", () => {
     const afterNone = await unchecked.service.integration.integratorMerge(c.merge.id, unchecked.ops!.members["ops-int"]!);
     expect(afterNone.reason).toContain("no checks command");
     expect(unchecked.git.count("merge")).toBe(0);
+  });
+
+  it("red checks (test failures): rejected, not returned, and the crew lead gets the log with 'fix, then crew_deliver again'", async () => {
+    const red = await twoCrews({ integrator: true, alpha: { checks: "npm test" } });
+    red.git.checksResult = { kind: "failed", output: "1 failing" };
+    const a = await red.service.integration.request(red.alpha.crew, "x");
+    const afterRed = await red.service.integration.integratorMerge(a.merge.id, red.ops!.members["ops-int"]!);
+    expect(afterRed).toMatchObject({ state: "rejected", checksOutput: "1 failing" });
+    expect(afterRed.reason).toContain("checks failed");
+    expect(red.git.count("merge")).toBe(0);
+    // Not the human's problem (yet): no Needs you for the lead.
+    expect(await red.needs(red.alpha, "core-lead")).not.toContain("merge-request");
+    const toLead = red.store.listMessages({ toMember: red.alpha.members["core-lead"]!.id }).at(-1)!;
+    expect(toLead.subject).toBe(`Merge request ${a.merge.id}: checks failed`);
+    expect(toLead.body).toContain("1 failing");
+    expect(toLead.body).toContain("fix, then crew_deliver again");
+    // It is rejected; the integrator cannot retry the same request.
+    await expect(red.service.integration.integratorMerge(a.merge.id, red.ops!.members["ops-int"]!)).rejects.toThrow();
+  });
+
+  it("environment errors (command not found, timeout) are reported as 'could not run', separate from failing tests", async () => {
+    const env = await twoCrews({ integrator: true, alpha: { checks: "npm test" } });
+    env.git.checksResult = { kind: "env", output: "command not found" };
+    const { merge } = await env.service.integration.request(env.alpha.crew, "x");
+    const after = await env.service.integration.integratorMerge(merge.id, env.ops!.members["ops-int"]!);
+    expect(after.state).toBe("rejected");
+    expect(after.reason).toContain("checks could not run (environment)");
+  });
+
+  it("the 3rd red check in a row (same crew) returns to the human instead of rejecting again", async () => {
+    const env = await twoCrews({ integrator: true, alpha: { checks: "npm test" } });
+    env.git.checksResult = { kind: "failed", output: "1 failing" };
+    for (let i = 0; i < REJECT_LIMIT - 1; i += 1) {
+      const { merge } = await env.service.integration.request(env.alpha.crew, "x");
+      const after = await env.service.integration.integratorMerge(merge.id, env.ops!.members["ops-int"]!);
+      expect(after.state).toBe("rejected");
+    }
+    const { merge: lastMerge } = await env.service.integration.request(env.alpha.crew, "x");
+    const last = await env.service.integration.integratorMerge(lastMerge.id, env.ops!.members["ops-int"]!);
+    expect(last.state).toBe("returned");
+    expect(await env.needs(env.alpha, "core-lead")).toContain("merge-request");
   });
 
   it("negative: a member without the integrator role cannot merge", async () => {
@@ -276,5 +307,44 @@ describe("local git backend", () => {
       throw new Error(`unexpected git ${args.join(" ")}`);
     });
     expect(await git.merge("/wt", "bb/x", "main", "m")).toMatchObject({ ok: false, conflict: false, detail: expect.stringContaining("uncommitted") });
+  });
+
+  it("checks(): NODE_ENV is left out of the process env (the server's NODE_ENV=production must not reach vitest)", async () => {
+    const before = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const git = createLocalGit();
+      const result = await git.checks(process.cwd(), 'node -e "process.stdout.write(String(process.env.NODE_ENV))"');
+      expect(result.output).toBe("undefined");
+    } finally {
+      if (before === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = before;
+    }
+  });
+
+  it("checks(): ANSI escape codes are stripped from the stored output", async () => {
+    const git = createLocalGit(async () => ({ code: 0, stdout: "\u001b[32mok\u001b[0m\n", stderr: "" }));
+    const result = await git.checks("/wt", "npm test");
+    expect(result.output).toBe("ok");
+  });
+
+  it("checks(): exit 127 (command not found) is an environment error, not a test failure", async () => {
+    const git = createLocalGit(async () => ({ code: 127, stdout: "", stderr: "sh: npm: command not found" }));
+    expect((await git.checks("/wt", "npm test")).kind).toBe("env");
+  });
+
+  it("checks(): exit 126 (not executable) is an environment error", async () => {
+    const git = createLocalGit(async () => ({ code: 126, stdout: "", stderr: "permission denied" }));
+    expect((await git.checks("/wt", "npm test")).kind).toBe("env");
+  });
+
+  it("checks(): a timed-out/killed run is an environment error", async () => {
+    const git = createLocalGit(async () => ({ code: 1, stdout: "", stderr: "", killed: true }));
+    expect((await git.checks("/wt", "npm test")).kind).toBe("env");
+  });
+
+  it("checks(): a normal non-zero exit is a test failure", async () => {
+    const git = createLocalGit(async () => ({ code: 1, stdout: "1 failing", stderr: "" }));
+    expect((await git.checks("/wt", "npm test")).kind).toBe("failed");
   });
 });
