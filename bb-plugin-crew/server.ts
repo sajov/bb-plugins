@@ -747,7 +747,17 @@ export default async function plugin(bb: BbPluginApi) {
     },
     getCrew: async ({ projectId, name }) => {
       const crew = store.findCrew(projectId, name);
-      return { crew: crew ? dto(crew) : null, members: crew ? await service.members(crew) : [], links: crew ? store.listLinks(crew.id) : [] };
+      if (!crew) return { crew: null, members: [], links: [] };
+      // BBP-79: listCrews decorates projectName for the switch; getCrew fed the
+      // same dto() straight through, so a crew opened on its own (a directive, the
+      // thread side panel) showed the project id in its title instead of its name.
+      let projectName: string | null = null;
+      try {
+        projectName = (await bb.sdk.projects.get({ projectId })).name;
+      } catch {
+        // fall through with no name — decoration only
+      }
+      return { crew: { ...dto(crew), projectName }, members: await service.members(crew), links: store.listLinks(crew.id) };
     },
     plan: async (input) => {
       const { validation, items } = await service.plan(input.projectId, await yamlFor(input), input);
