@@ -150,6 +150,8 @@ const overviewSchema = z.object({
       merge: mergeSchema.nullable(),
       needsYou: z.number(),
       members: z.array(z.object({ key: z.string(), lead: z.boolean(), activity: z.string(), needsYou: z.array(z.string()) })),
+      /** BB tasks carrying the label `crew-<name>` (BBP-84): the factory tick never sets `task`, so this is their only link to the diagram. */
+      labelTasks: z.array(z.object({ key: z.string(), title: z.string(), status: z.string() })),
     }),
   ),
   leadLinks: z.array(z.object({ from: z.string(), to: z.string(), count: z.number() })),
@@ -846,6 +848,9 @@ export default async function plugin(bb: BbPluginApi) {
         const spec = service.models(crew).spec;
         const lead = store.listMembers(crew.id).find((member) => member.lead);
         const merge = store.listMerges({ crewId: crew.id }).at(-1) ?? null;
+        const labelTasks = service.tasks
+          ? await service.tasks.listByLabel(projectId, `crew-${crew.name}`).catch(() => [])
+          : [];
         cards.push({
           name: crew.name,
           status: crew.status,
@@ -856,6 +861,7 @@ export default async function plugin(bb: BbPluginApi) {
           merge: merge ? mergeDto(store, merge) : null,
           needsYou: views.filter((view) => view.needsYou.length > 0).length,
           members: views.map((view) => ({ key: view.key, lead: view.lead, activity: view.activity, needsYou: view.needsYou })),
+          labelTasks,
         });
       }
       const leads = new Set(crews.flatMap((crew) => store.listMembers(crew.id).filter((member) => member.lead).map((member) => member.id)));

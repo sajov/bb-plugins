@@ -22,12 +22,16 @@ import type { CrewRow, DependencyRow, MemberRow, Store } from "./store";
 
 export type TaskInfo = { id: string; projectId: string; status: string; labelIds: string[] };
 
+export type LabelledTask = { key: string; title: string; status: string };
+
 export interface TasksPort {
   getTask(key: string): Promise<TaskInfo | null>;
   comments(taskId: string): Promise<string[]>;
   /** Id of the label with this name in the tracker project, created when missing. */
   ensureLabel(projectId: string, name: string): Promise<string>;
   setLabels(taskId: string, labelIds: string[]): Promise<void>;
+  /** Tasks of the tracker project carrying this label by name (BBP-84); empty when the label doesn't exist. */
+  listByLabel(projectId: string, labelName: string): Promise<LabelledTask[]>;
 }
 
 export const labelFor = (taskKey: string) => `wartet-auf:${taskKey}`;
@@ -153,12 +157,21 @@ export function createTasksRpcPort(callRpc: (method: string, input: unknown) => 
     async setLabels(taskId, labelIds) {
       await callRpc("updateTask", { taskId, labelIds });
     },
+    async listByLabel(projectId, labelName) {
+      const listed = (await callRpc("listLabels", { projectId })) as { labels?: { id: string; name: string }[] };
+      const label = (listed.labels ?? []).find((entry) => entry.name === labelName);
+      if (!label) return [];
+      const result = (await callRpc("listTasks", { projectId, labelIds: [label.id], limit: 500 })) as {
+        tasks: { key: string; title: string; status: string }[];
+      };
+      return result.tasks.map((task) => ({ key: task.key, title: task.title, status: task.status }));
+    },
   };
 }
 
 /** Test double for the tasks plugin. */
 export function createFakeTasks() {
-  const tasks = new Map<string, TaskInfo & { comments: string[] }>();
+  const tasks = new Map<string, TaskInfo & { title?: string; comments: string[] }>();
   const labels = new Map<string, string>();
   const calls: string[] = [];
   const port: TasksPort & { tasks: typeof tasks; labels: typeof labels; calls: string[]; failLabels: boolean } = {
@@ -186,6 +199,14 @@ export function createFakeTasks() {
       calls.push(`setLabels ${taskId}`);
       const task = [...tasks.values()].find((entry) => entry.id === taskId);
       if (task) task.labelIds = [...labelIds];
+    },
+    async listByLabel(projectId, labelName) {
+      calls.push(`listByLabel ${labelName}`);
+      const labelId = labels.get(`${projectId}:${labelName}`);
+      if (!labelId) return [];
+      return [...tasks.entries()]
+        .filter(([, task]) => task.projectId === projectId && task.labelIds.includes(labelId))
+        .map(([key, task]) => ({ key, title: task.title ?? key, status: task.status }));
     },
   };
   return port;

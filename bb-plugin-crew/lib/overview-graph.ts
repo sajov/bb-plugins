@@ -21,6 +21,8 @@ export type OverviewSource = {
     branch: string | null;
     needsYou: number;
     members: ReadonlyArray<{ key: string; lead: boolean; activity: string }>;
+    /** BB tasks carrying the label `crew-<name>` — the source of truth for factory crews, which never set `task` (BBP-84). */
+    labelTasks: ReadonlyArray<{ key: string; title: string; status: string }>;
   }>;
   leadLinks: ReadonlyArray<{ from: string; to: string; count: number }>;
   dependencies: ReadonlyArray<{ crew: string; task: string; until: string; state: string; source: string | null }>;
@@ -73,6 +75,9 @@ function crewActive(status: string, members: ReadonlyArray<{ activity: string }>
 /** States that mean the dependency/task is settled, not open work. */
 const DONE_STATES = new Set(["done", "merged", "satisfied"]);
 
+/** BB task statuses that mean the ticket is settled (§3.9: done or canceled). */
+const DONE_TASK_STATUSES = new Set(["done", "canceled"]);
+
 /**
  * Nodes and edges for every project given, pure and order-stable (projects
  * in input order, then crews, then tasks). Call once per fetch; re-call on
@@ -90,14 +95,15 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
       continue;
     }
     const taskIds = new Map<string, TaskNode>();
-    const ensureTask = (key: string, done: boolean): TaskNode => {
+    const ensureTask = (key: string, done: boolean, title?: string): TaskNode => {
       const id = taskNodeId(project.id, key);
       const existing = taskIds.get(id);
       if (existing) {
         if (done) existing.done = true;
+        if (title) existing.title = title;
         return existing;
       }
-      const node: TaskNode = { kind: "task", id, projectId: project.id, key, title: key, done };
+      const node: TaskNode = { kind: "task", id, projectId: project.id, key, title: title ?? key, done };
       taskIds.set(id, node);
       return node;
     };
@@ -118,6 +124,13 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
       if (crew.task) {
         const task = ensureTask(crew.task, false);
         edges.push({ kind: "task-crew", id: `${task.id}->${id}`, from: task.id, to: id, active: crewActive(crew.status, crew.members) });
+      }
+
+      for (const labelTask of crew.labelTasks) {
+        const task = ensureTask(labelTask.key, DONE_TASK_STATUSES.has(labelTask.status), labelTask.title);
+        const edgeId = `${task.id}->${id}`;
+        if (edges.some((edge) => edge.id === edgeId)) continue;
+        edges.push({ kind: "task-crew", id: edgeId, from: task.id, to: id, active: labelTask.status === "in_progress" });
       }
     }
 

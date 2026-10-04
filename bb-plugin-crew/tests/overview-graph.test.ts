@@ -12,8 +12,8 @@ import {
 function source(overrides: Partial<OverviewSource> = {}): OverviewSource {
   return {
     crews: [
-      { name: "alpha", status: "running", summary: "", task: "BBP-1", branch: "bb/alpha", needsYou: 0, members: [{ key: "alpha-lead", lead: true, activity: "working" }] },
-      { name: "beta", status: "idle", summary: "", task: null, branch: "bb/beta", needsYou: 1, members: [{ key: "beta-lead", lead: true, activity: "idle" }] },
+      { name: "alpha", status: "running", summary: "", task: "BBP-1", branch: "bb/alpha", needsYou: 0, members: [{ key: "alpha-lead", lead: true, activity: "working" }], labelTasks: [] },
+      { name: "beta", status: "idle", summary: "", task: null, branch: "bb/beta", needsYou: 1, members: [{ key: "beta-lead", lead: true, activity: "idle" }], labelTasks: [] },
     ],
     leadLinks: [{ from: "alpha", to: "beta", count: 3 }],
     dependencies: [{ crew: "beta", task: "BBP-2", until: "done", state: "open", source: null }],
@@ -79,6 +79,51 @@ describe("buildOverviewGraph", () => {
       taskNodeId("p1", "BBP-1"),
       taskNodeId("p1", "BBP-2"),
     ]);
+  });
+});
+
+describe("buildOverviewGraph: label-assigned tasks (crew-<crew> label, no crew.task)", () => {
+  it("draws an active task→crew edge for a label task whose ticket is in_progress", () => {
+    const graph = buildOverviewGraph(
+      [{ id: "p1", name: "P" }],
+      new Map([["p1", source({ crews: [{ name: "gamma", status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], labelTasks: [{ key: "BBP-84", title: "Label edge", status: "in_progress" }] }] })]]),
+    );
+    const gamma = crewNodeId("p1", "gamma");
+    const task = taskNodeId("p1", "BBP-84");
+    expect(graph.nodes.find((node) => node.id === task)).toMatchObject({ kind: "task", key: "BBP-84", title: "Label edge", done: false });
+    expect(graph.edges).toContainEqual(expect.objectContaining({ kind: "task-crew", from: task, to: gamma, active: true }));
+  });
+
+  it("marks the task done once the ticket is done or canceled, inactive edge", () => {
+    const graph = buildOverviewGraph(
+      [{ id: "p1", name: "P" }],
+      new Map([["p1", source({ crews: [{ name: "gamma", status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], labelTasks: [{ key: "BBP-84", title: "Label edge", status: "done" }] }] })]]),
+    );
+    const task = graph.nodes.find((node) => node.id === taskNodeId("p1", "BBP-84"));
+    expect(task).toMatchObject({ done: true });
+    expect(graph.edges).toContainEqual(expect.objectContaining({ active: false }));
+  });
+
+  it("dedupes with the crew.task edge when the label task is the same ticket", () => {
+    const graph = buildOverviewGraph(
+      [{ id: "p1", name: "P" }],
+      new Map([
+        [
+          "p1",
+          source({
+            crews: [{ name: "alpha", status: "running", summary: "", task: "BBP-1", branch: "bb/alpha", needsYou: 0, members: [{ key: "alpha-lead", lead: true, activity: "working" }], labelTasks: [{ key: "BBP-1", title: "Alpha ticket", status: "in_progress" }] }],
+          }),
+        ],
+      ]),
+    );
+    const alpha = crewNodeId("p1", "alpha");
+    const task = taskNodeId("p1", "BBP-1");
+    expect(graph.edges.filter((edge) => edge.kind === "task-crew" && edge.from === task && edge.to === alpha)).toHaveLength(1);
+  });
+
+  it("skips crews with no label tasks", () => {
+    const graph = buildOverviewGraph([{ id: "p1", name: "P" }], new Map([["p1", source()]]));
+    expect(graph.projects[0]).toMatchObject({ taskCount: 2 });
   });
 });
 

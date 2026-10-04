@@ -5,8 +5,8 @@ import { CREW_H, CREW_W, layoutOverview, TASK_H, TASK_W } from "../lib/overview-
 function source(): OverviewSource {
   return {
     crews: [
-      { name: "alpha", status: "running", summary: "", task: "BBP-1", branch: null, needsYou: 0, members: [] },
-      { name: "beta", status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [] },
+      { name: "alpha", status: "running", summary: "", task: "BBP-1", branch: null, needsYou: 0, members: [], labelTasks: [] },
+      { name: "beta", status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], labelTasks: [] },
     ],
     leadLinks: [],
     dependencies: [],
