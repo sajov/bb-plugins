@@ -60,6 +60,13 @@ export interface ViewState {
    * under a project that stayed.
    */
   tagFilter: string[];
+  /**
+   * Projects picked directly, by id — the "Projects" entries under the tags
+   * in the same filter. Joins the tag filter as a union: a project picked
+   * here stays visible whether or not it carries a picked tag. Ids rather
+   * than names so a rename does not silently drop the pick.
+   */
+  projectFilter: string[];
 }
 
 export const DEFAULT_VIEW: ViewState = {
@@ -78,6 +85,7 @@ export const DEFAULT_VIEW: ViewState = {
   collapsedSections: [],
   openQuiet: [],
   tagFilter: [],
+  projectFilter: [],
 };
 
 /** How many ids we keep at most — a list that only grows is a leak. */
@@ -143,6 +151,7 @@ export function parseViewState(value: unknown): ViewState {
     collapsedSections: readIds(raw.collapsedSections),
     openQuiet: readIds(raw.openQuiet),
     tagFilter: normalizeTags(raw.tagFilter),
+    projectFilter: readIds(raw.projectFilter),
   };
 }
 
@@ -211,6 +220,7 @@ export function isDefaultView(view: ViewState): boolean {
     view.compact === DEFAULT_VIEW.compact &&
     view.emptyProjects === DEFAULT_VIEW.emptyProjects &&
     view.pinnedGroup === DEFAULT_VIEW.pinnedGroup &&
-    view.tagFilter.length === 0
+    view.tagFilter.length === 0 &&
+    view.projectFilter.length === 0
   );
 }

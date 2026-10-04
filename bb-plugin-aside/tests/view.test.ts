@@ -116,6 +116,7 @@ describe("focus, pinned group and reset", () => {
       projectSort: "name",
       compact: true,
       tagFilter: ["api"],
+      projectFilter: ["p3"],
       collapsedProjects: ["p1"],
       collapsedSections: ["p1:s1"],
       personalAfter: "p2",
@@ -125,6 +126,7 @@ describe("focus, pinned group and reset", () => {
     expect(reset.projectSort).toBe("manual");
     expect(reset.compact).toBe(false);
     expect(reset.tagFilter).toEqual([]);
+    expect(reset.projectFilter).toEqual([]);
     expect(reset.collapsedProjects).toEqual(["p1"]);
     expect(reset.collapsedSections).toEqual(["p1:s1"]);
     expect(reset.personalAfter).toBe("p2");
@@ -136,5 +138,18 @@ describe("focus, pinned group and reset", () => {
     expect(isDefaultView({ ...DEFAULT_VIEW, collapsedProjects: ["p1"] })).toBe(true);
     expect(isDefaultView({ ...DEFAULT_VIEW, threadSort: "state" })).toBe(false);
     expect(isDefaultView({ ...DEFAULT_VIEW, tagFilter: ["api"] })).toBe(false);
+    expect(isDefaultView({ ...DEFAULT_VIEW, projectFilter: ["p1"] })).toBe(false);
+  });
+});
+
+describe("reading the project filter", () => {
+  it("defaults to nothing picked", () => {
+    expect(DEFAULT_VIEW.projectFilter).toEqual([]);
+  });
+
+  it("reads picked project ids like any other id list", () => {
+    expect(parseViewState({ projectFilter: ["p1", "p1", 7, ""] }).projectFilter).toEqual([
+      "p1",
+    ]);
   });
 });

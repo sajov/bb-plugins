@@ -8,7 +8,7 @@
 // Pure data: no chip is drawn here.
 import { normalizeQuery, tagPrefix } from "./search";
 
-export type ScopeKind = "search" | "tags" | "archived";
+export type ScopeKind = "search" | "tags" | "projects" | "archived";
 
 export interface ScopeChip {
   kind: ScopeKind;
@@ -18,10 +18,13 @@ export interface ScopeChip {
 export function activeScopes({
   query,
   tagFilter,
+  projectNames = [],
   archived,
 }: {
   query: string;
   tagFilter: readonly string[];
+  /** Names of the projects picked directly, in pick order. */
+  projectNames?: readonly string[];
   archived: boolean;
 }): ScopeChip[] {
   const chips: ScopeChip[] = [];
@@ -33,6 +36,12 @@ export function activeScopes({
   }
   if (tagFilter.length > 0) {
     chips.push({ kind: "tags", label: tagFilter.map((tag) => `#${tag}`).join(" · ") });
+  }
+  // A separate chip from the tag one: the two filters are cleared one at a
+  // time, and a picked project is not a tag even though it narrows the same
+  // way.
+  if (projectNames.length > 0) {
+    chips.push({ kind: "projects", label: projectNames.join(" · ") });
   }
   // Archived adds rows rather than removing them, but it changes what the list
   // is just the same, and it is the switch people forget they turned on.

@@ -133,6 +133,26 @@ describe("matchesTagFilter", () => {
   it("removes an untagged project as soon as a tag is picked", () => {
     expect(matchesTagFilter([], ["api"])).toBe(false);
   });
+
+  it("is unaffected by a project id when no project is picked (unchanged behaviour)", () => {
+    expect(matchesTagFilter(["api"], ["api"], "p1", [])).toBe(true);
+    expect(matchesTagFilter([], ["api"], "p1", [])).toBe(false);
+    expect(matchesTagFilter([], [], "p1", [])).toBe(true);
+  });
+
+  it("keeps a picked project even without a matching tag", () => {
+    expect(matchesTagFilter([], [], "p1", ["p1"])).toBe(true);
+    expect(matchesTagFilter([], [], "p2", ["p1"])).toBe(false);
+  });
+
+  it("is a union of tag group and picked project", () => {
+    // Tag group picked (web) plus a foreign project (p3) picked: a project in
+    // the tag group stays visible, and so does the picked project even though
+    // it carries neither tag.
+    expect(matchesTagFilter(["web"], ["web"], "p1", ["p3"])).toBe(true);
+    expect(matchesTagFilter([], ["web"], "p3", ["p3"])).toBe(true);
+    expect(matchesTagFilter(["infra"], ["web"], "p2", ["p3"])).toBe(false);
+  });
 });
 
 describe("pruneTagFilter", () => {
@@ -142,5 +162,9 @@ describe("pruneTagFilter", () => {
 
   it("empties itself when the last tag disappears", () => {
     expect(pruneTagFilter(["api"], [])).toEqual([]);
+  });
+
+  it("also prunes project ids no longer among the live projects", () => {
+    expect(pruneTagFilter(["p1", "deleted"], ["p1", "p2"])).toEqual(["p1"]);
   });
 });

@@ -51,6 +51,34 @@ function TagChip({
   );
 }
 
+function ProjectChip({
+  name,
+  picked,
+  onClick,
+}: {
+  name: string;
+  picked: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={picked ? `Stop filtering on ${name}` : `Filter on ${name}`}
+      aria-pressed={picked}
+      onClick={onClick}
+      className={
+        picked
+          ? "flex shrink-0 items-center gap-1 rounded-full border border-border bg-sidebar-accent px-1.5 text-2xs text-foreground"
+          : "flex shrink-0 items-center gap-1 rounded-full border border-border-hairline px-1.5 text-2xs text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground"
+      }
+    >
+      <Icon name="Folder" className="size-2.5 shrink-0 opacity-60" aria-hidden />
+      <span className="truncate">{name}</span>
+      {picked ? <Icon name="X" className="size-2.5 shrink-0 opacity-60" aria-hidden /> : null}
+    </button>
+  );
+}
+
 export function SearchSlot({
   query,
   matchCount,
@@ -61,6 +89,9 @@ export function SearchSlot({
   tagCounts,
   activeTags,
   onToggleTag,
+  knownProjects,
+  activeProjects,
+  onToggleProject,
 }: {
   query: string;
   /** Every tag in use, alphabetical. */
@@ -69,6 +100,11 @@ export function SearchSlot({
   /** The tags the list is narrowed to. */
   activeTags: readonly string[];
   onToggleTag: (tag: string) => void;
+  /** Every project, offered below the tags as its own filter entries. */
+  knownProjects: readonly { id: string; name: string }[];
+  /** The projects picked directly, by id. */
+  activeProjects: readonly string[];
+  onToggleProject: (projectId: string) => void;
   /**
    * How many projects the query leaves. Shown only while something is typed —
    * a zero is the one answer the list itself cannot give, because an empty list
@@ -104,6 +140,18 @@ export function SearchSlot({
       {activeTags.map((tag) => (
         <TagChip key={tag} tag={tag} picked onClick={() => onToggleTag(tag)} />
       ))}
+      {activeProjects.map((projectId) => {
+        const project = knownProjects.find((entry) => entry.id === projectId);
+        if (project === undefined) return null;
+        return (
+          <ProjectChip
+            key={projectId}
+            name={project.name}
+            picked
+            onClick={() => onToggleProject(projectId)}
+          />
+        );
+      })}
       <input
         ref={field}
         type="text"
@@ -112,7 +160,9 @@ export function SearchSlot({
         autoComplete="off"
         spellCheck={false}
         aria-label="Filter projects by name, # for tags"
-        placeholder={activeTags.length > 0 ? "" : "Filter projects… # for tags"}
+        placeholder={
+          activeTags.length > 0 || activeProjects.length > 0 ? "" : "Filter projects… # for tags"
+        }
         onChange={(event) => onQuery(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && prefix !== null) {
@@ -172,6 +222,25 @@ export function SearchSlot({
       // Not an empty offer: a `#` that shows nothing reads as broken.
       <div className="px-3 pb-1.5 text-2xs text-muted-foreground">
         No tags yet — right-click a project to add one.
+      </div>
+    ) : null}
+    {/* Projects, as their own filter entries below the tags. Hidden while
+        browsing tags with `#` so the two offers never mix in one list. */}
+    {prefix === null && knownProjects.length > activeProjects.length ? (
+      <div className="px-3 pb-1.5">
+        <div className="pb-1 text-2xs font-medium text-muted-foreground/70">Projects</div>
+        <div className="flex max-h-12 flex-wrap gap-1 overflow-y-auto">
+          {knownProjects
+            .filter((project) => !activeProjects.includes(project.id))
+            .map((project) => (
+              <ProjectChip
+                key={project.id}
+                name={project.name}
+                picked={false}
+                onClick={() => onToggleProject(project.id)}
+              />
+            ))}
+        </div>
       </div>
     ) : null}
     </div>
