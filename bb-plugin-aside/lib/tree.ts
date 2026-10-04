@@ -156,6 +156,8 @@ export interface GroupOptions {
   threadSort: "newest" | "state";
   /** Root thread ids in the order the user dragged them. */
   threadOrder?: readonly string[];
+  /** Section ids in the order the user dragged them. */
+  sectionOrder?: readonly string[];
 }
 
 /**
@@ -203,7 +205,7 @@ export function groupThreads(
     return {
       project,
       families: sorted,
-      blocks: splitIntoSections(sorted, options.sections),
+      blocks: splitIntoSections(sorted, options.sections, options.sectionOrder),
     };
   });
 }
@@ -268,25 +270,44 @@ export function moveInOrder(
 }
 
 /**
+ * Sections in dragged order. Stable sort: sections never dragged (rank -1)
+ * keep their relative position among themselves — the caller hands them in
+ * newest first, so that is what "not yet arranged" still looks like.
+ */
+export function sortSections<T extends { id: string }>(
+  sections: readonly T[],
+  sectionOrder: readonly string[] = [],
+): T[] {
+  const rank = new Map(sectionOrder.map((id, index) => [id, index]));
+  return [...sections].sort(
+    (left, right) => (rank.get(left.id) ?? -1) - (rank.get(right.id) ?? -1),
+  );
+}
+
+/**
  * In the host a section belongs to no project: its schema is only
  * `{ id, name }`, and threads point at it through `sectionId`. It therefore
  * appears in every project where it has threads — and nowhere else.
  *
  * Pinned threads come first, above every section and out of their own one —
  * you pulled them up yourself. Sections follow, in the order the caller
- * supplies (newest first): a section just created must be visible without
- * scrolling past the loose threads. The threads without a section follow
- * below — with no invented "Other" heading.
+ * supplies (newest first) unless `sectionOrder` places some of them
+ * elsewhere — a section just dragged keeps its new spot across projects,
+ * since a section belongs to no single one. Sections the user never dragged
+ * keep coming first, newest first, as today. The threads without a section
+ * follow below — with no invented "Other" heading.
  */
 export function splitIntoSections(
   families: readonly Family[],
   sections: readonly { id: string; name: string }[],
+  sectionOrder: readonly string[] = [],
 ): SectionBlock[] {
   const blocks: SectionBlock[] = [];
   const pinned = families.filter((family) => family.root.isPinned);
   if (pinned.length) blocks.push({ section: null, families: pinned });
   const unpinned = families.filter((family) => !family.root.isPinned);
-  for (const section of sections) {
+  const ordered = sortSections(sections, sectionOrder);
+  for (const section of ordered) {
     const own = unpinned.filter(
       (family) => family.root.sectionId === section.id,
     );

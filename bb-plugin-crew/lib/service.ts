@@ -245,6 +245,8 @@ export function createCrewService(deps: ServiceDeps) {
     channel,
     integration,
     dependencies,
+    /** The BB Tasks plugin, for callers that need more than `dependencies`' own facade (e.g. the overview's label-task edges, BBP-84). */
+    tasks: deps.tasks ?? null,
     flush,
     log,
     limit,

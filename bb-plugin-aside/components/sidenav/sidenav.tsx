@@ -195,6 +195,7 @@ export function Sidenav({
           sections,
           threadSort: view.threadSort,
           threadOrder: view.threadOrder,
+          sectionOrder: view.sectionOrder,
         }),
         view.projectSort,
       ),
@@ -205,6 +206,7 @@ export function Sidenav({
       view.archived,
       view.threadSort,
       view.threadOrder,
+      view.sectionOrder,
       view.projectSort,
     ],
   );
@@ -859,6 +861,7 @@ export function Sidenav({
                     <div key={sectionBlock.section?.id ?? `loose-${index}`}>
                       {sectionBlock.section === null || key === null ? null : (
                         <SectionRow
+                          id={sectionBlock.section.id}
                           name={sectionBlock.section.name}
                           count={sectionBlock.families.length}
                           state={projectState(sectionBlock.families)}
@@ -917,6 +920,19 @@ export function Sidenav({
                               sectionId: sectionBlock.section!.id,
                             })
                           }
+                          onReorder={(sourceSectionId, position) => {
+                            const shown = block.blocks
+                              .filter((entry) => entry.section !== null)
+                              .map((entry) => entry.section!.id);
+                            const sectionOrder = moveInOrder(
+                              view.sectionOrder,
+                              shown,
+                              sourceSectionId,
+                              sectionBlock.section!.id,
+                              position,
+                            ).slice(-MAX_IDS);
+                            patchView({ sectionOrder });
+                          }}
                         />
                       )}
                       {sectionCollapsed ? null : key === null ? (

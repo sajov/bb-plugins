@@ -32,7 +32,7 @@ describe("zoom path (BBP-83)", () => {
 
 function crews(count: number, overrides: Partial<OverviewSource["crews"][number]> = {}): OverviewSource {
   return {
-    crews: Array.from({ length: count }, (_, i) => ({ name: `c${i}`, status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], ...overrides })),
+    crews: Array.from({ length: count }, (_, i) => ({ name: `c${i}`, status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], labelTasks: [], ...overrides })),
     leadLinks: [],
     dependencies: [],
   };

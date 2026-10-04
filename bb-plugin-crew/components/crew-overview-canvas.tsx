@@ -8,7 +8,7 @@
 // the BB theme's own CSS variables, the same tokens components/crew-topology.tsx
 // already draws with.
 import { useLayoutEffect, useMemo, type CSSProperties } from "react";
-import { Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type ColorMode, type Edge, type EdgeProps, type Node, type NodeProps } from "@xyflow/react";
+import { Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, useReactFlow, type ColorMode, type Edge, type EdgeProps, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { cn } from "@/lib/utils";
 import {
@@ -68,6 +68,7 @@ function CrewNodeView({ data }: NodeProps<Node<{ crew: CrewNode; selected: boole
       data-status={crew.status}
       aria-pressed={selected}
     >
+      <Handle type="target" position={Position.Top} isConnectable={false} className="!pointer-events-none !opacity-0" />
       <div
         className="flex h-full w-full flex-col gap-1 overflow-hidden rounded-[10px] p-2.5 shadow-sm"
         style={{ background: fill, border: `${selected || matched ? 2.5 : 1.5}px solid ${matched ? "var(--primary)" : selected ? "var(--primary)" : stroke}` }}
@@ -90,6 +91,7 @@ function CrewNodeView({ data }: NodeProps<Node<{ crew: CrewNode; selected: boole
           {crew.members.length > 4 ? <span className="text-[9px] text-muted-foreground">+{crew.members.length - 4}</span> : null}
         </div>
       </div>
+      <Handle type="source" position={Position.Bottom} isConnectable={false} className="!pointer-events-none !opacity-0" />
     </div>
   );
 }
@@ -104,6 +106,7 @@ function TaskNodeView({ data }: NodeProps<Node<{ task: TaskNode; matched: boolea
       data-task-node={task.key}
       data-done={task.done ? "true" : undefined}
     >
+      <Handle type="target" position={Position.Top} isConnectable={false} className="!pointer-events-none !opacity-0" />
       <div
         className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden rounded-[8px] border px-2.5 py-1.5 text-xs shadow-sm"
         style={{
@@ -119,6 +122,7 @@ function TaskNodeView({ data }: NodeProps<Node<{ task: TaskNode; matched: boolea
         </div>
         <span className="truncate text-foreground">{task.title}</span>
       </div>
+      <Handle type="source" position={Position.Bottom} isConnectable={false} className="!pointer-events-none !opacity-0" />
     </div>
   );
 }

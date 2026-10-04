@@ -3,7 +3,7 @@
 // In the host a section belongs to no project (its schema is only
 // { id, name }); it therefore appears in every project where it has threads.
 // The count on the right is — as everywhere — the toggle.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { cn } from "@/lib/utils";
 import { RowCount, RowTail } from "@/components/sidenav/row-slots";
 import type { ThreadState } from "@/lib/tree";
@@ -17,7 +17,17 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
+/** A section has no project of its own, so its drag type stays separate from
+ *  `PROJECT_DRAG_TYPE` — dropping a project on a section row must not reorder
+ *  sections, and dropping a section on a project row must not move a project. */
+export const SECTION_DRAG_TYPE = "application/x-aside-section";
+
+/** The section being dragged. `getData` is empty during dragover, so this is
+ *  how a row knows not to mark itself as a drop target. */
+let draggedSectionId: string | null = null;
+
 export function SectionRow({
+  id,
   name,
   count,
   state,
@@ -34,7 +44,9 @@ export function SectionRow({
   onDissolve,
   onDropThread,
   onNewThread,
+  onReorder,
 }: {
+  id: string;
   name: string;
   count: number;
   state: ThreadState;
@@ -58,8 +70,12 @@ export function SectionRow({
   onDissolve: () => void;
   onDropThread: (threadId: string) => void;
   onNewThread: () => void;
+  onReorder: (sourceSectionId: string, position: "before" | "after") => void;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+  const [dropAt, setDropAt] = useState<"before" | "after" | null>(null);
   useEffect(() => {
     if (!renaming) return;
     ref.current?.focus();
@@ -70,12 +86,61 @@ export function SectionRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
+          ref={rowRef}
+          draggable
+          onDragStart={(event: DragEvent<HTMLDivElement>) => {
+            dragging.current = true;
+            draggedSectionId = id;
+            event.dataTransfer.effectAllowed = "move";
+            event.dataTransfer.setData(SECTION_DRAG_TYPE, id);
+            event.dataTransfer.setData("text/plain", name);
+          }}
+          onDragEnd={() => {
+            draggedSectionId = null;
+            window.setTimeout(() => {
+              dragging.current = false;
+            }, 0);
+          }}
           onDragOver={(event) => {
-            if (!event.dataTransfer.types.includes(THREAD_DRAG_TYPE)) return;
+            if (
+              !event.dataTransfer.types.includes(THREAD_DRAG_TYPE) &&
+              !event.dataTransfer.types.includes(SECTION_DRAG_TYPE)
+            ) {
+              return;
+            }
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
+            if (!event.dataTransfer.types.includes(SECTION_DRAG_TYPE)) return;
+            if (draggedSectionId === id) {
+              setDropAt(null);
+              return;
+            }
+            const bounds = rowRef.current?.getBoundingClientRect();
+            setDropAt(
+              bounds !== undefined && event.clientY >= bounds.top + bounds.height / 2
+                ? "after"
+                : "before",
+            );
+          }}
+          onDragLeave={(event) => {
+            if (rowRef.current?.contains(event.relatedTarget as Node | null)) return;
+            setDropAt(null);
           }}
           onDrop={(event) => {
+            setDropAt(null);
+            const sourceSectionId = event.dataTransfer.getData(SECTION_DRAG_TYPE);
+            if (sourceSectionId && sourceSectionId !== id) {
+              event.preventDefault();
+              event.stopPropagation();
+              const bounds = rowRef.current?.getBoundingClientRect();
+              onReorder(
+                sourceSectionId,
+                bounds !== undefined && event.clientY >= bounds.top + bounds.height / 2
+                  ? "after"
+                  : "before",
+              );
+              return;
+            }
             const threadId = event.dataTransfer.getData(THREAD_DRAG_TYPE);
             if (!threadId) return;
             event.preventDefault();
@@ -83,14 +148,15 @@ export function SectionRow({
             onDropThread(threadId);
           }}
           onClick={(event) => {
-            if (renaming || event.detail > 1) return;
+            if (dragging.current || renaming || event.detail > 1) return;
             onToggle();
           }}
           onDoubleClick={(event) => {
             event.preventDefault();
             onStartRename();
           }}
-          className="mt-1 flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-0.5 hover:bg-sidebar-accent/60"
+          data-drop={dropAt ?? undefined}
+          className="relative mt-1 flex cursor-grab select-none items-center gap-2 rounded-md px-2 py-0.5 hover:bg-sidebar-accent/60 active:cursor-grabbing"
         >
           {renaming ? (
             <input
@@ -127,6 +193,15 @@ export function SectionRow({
             </span>
           ) : null}
           <RowTail age={age} now={now} state={state} className="ml-auto" />
+          {dropAt !== null ? (
+            <span
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-x-1 h-px bg-[color:var(--muted-foreground)]",
+                dropAt === "before" ? "-top-[3px]" : "-bottom-[3px]",
+              )}
+            />
+          ) : null}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-60">

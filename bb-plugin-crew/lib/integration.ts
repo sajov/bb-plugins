@@ -37,26 +37,43 @@ export interface GitBackend {
   ahead(cwd: string, branch: string, base: string): Promise<number | null>;
   /** Uncommitted changes to tracked files in this worktree. */
   dirty(cwd: string): Promise<boolean>;
-  /** Run the checks command in the worktree; green = exit code 0. */
-  checks(cwd: string, command: string): Promise<{ ok: boolean; output: string }>;
+  /**
+   * Run the checks command in the worktree. `ok` = exit 0. `env` = the
+   * command itself could not run (exit 126/127, or it timed out/was
+   * killed) — distinct from `failed`, a real red check.
+   */
+  checks(cwd: string, command: string): Promise<{ kind: "ok" | "failed" | "env"; output: string }>;
   /** Merge `branch` into `base`; never leaves a half-done merge behind. */
   merge(cwd: string, branch: string, base: string, message: string): Promise<MergeOutcome>;
   /** Rebase the worktree's branch onto `base`; on conflict the rebase is aborted. */
   rebase(cwd: string, base: string): Promise<RebaseOutcome>;
 }
 
-type Run = (args: string[], cwd: string, options?: { timeoutMs?: number; shell?: boolean }) => Promise<{ code: number; stdout: string; stderr: string }>;
+type Run = (
+  args: string[],
+  cwd: string,
+  options?: { timeoutMs?: number; shell?: boolean },
+) => Promise<{ code: number; stdout: string; stderr: string; killed?: boolean }>;
 
+// NODE_ENV is left out on purpose: the BB server runs with NODE_ENV=production,
+// and a check command that shells out to vitest would load React's production
+// builds under that, failing every render test with "React.act is not a function".
 const runProcess: Run = (args, cwd, options = {}) =>
   new Promise((resolve) => {
     const [file, ...rest] = options.shell ? ["sh", "-c", args.join(" ")] : ["git", ...args];
-    execFile(file!, rest, { cwd, timeout: options.timeoutMs ?? 60_000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (error, stdout, stderr) => {
-      const code = error ? (typeof (error as { code?: unknown }).code === "number" ? ((error as { code: number }).code) : 1) : 0;
-      resolve({ code, stdout: String(stdout), stderr: String(stderr) || (error && code === 1 && !stderr ? error.message : "") });
+    const { NODE_ENV: _omittedNodeEnv, ...env } = process.env;
+    execFile(file!, rest, { cwd, timeout: options.timeoutMs ?? 60_000, maxBuffer: 8 * 1024 * 1024, env: { ...env, GIT_TERMINAL_PROMPT: "0" } }, (error, stdout, stderr) => {
+      const killed = !!error && (error as { killed?: boolean }).killed === true;
+      const code = error ? (typeof (error as { code?: unknown }).code === "number" ? (error as { code: number }).code : 1) : 0;
+      resolve({ code, stdout: String(stdout), stderr: String(stderr) || (error && code === 1 && !stderr ? error.message : ""), killed });
     });
   });
 
 const tail = (text: string, max = 4000) => (text.length <= max ? text : `…${text.slice(-max)}`);
+const tailLines = (text: string, lines: number) => text.split("\n").slice(-lines).join("\n");
+// eslint-disable-next-line no-control-regex
+const ANSI_PATTERN = /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~])/g;
+const stripAnsi = (text: string) => text.replace(ANSI_PATTERN, "");
 
 /** Plain git through `child_process` — the server runs on the machine that holds the repository. */
 export function createLocalGit(run: Run = runProcess): GitBackend {
@@ -86,7 +103,10 @@ export function createLocalGit(run: Run = runProcess): GitBackend {
     },
     async checks(cwd, command) {
       const result = await run([command], cwd, { shell: true, timeoutMs: 10 * 60_000 });
-      return { ok: result.code === 0, output: tail(`${result.stdout}${result.stderr}`.trim()) };
+      const output = tail(stripAnsi(`${result.stdout}${result.stderr}`.trim()));
+      if (result.code === 0) return { kind: "ok", output };
+      const env = result.killed === true || result.code === 126 || result.code === 127;
+      return { kind: env ? "env" : "failed", output };
     },
     async merge(cwd, branch, base, message) {
       const target = await worktreeWith(cwd, base);
@@ -166,6 +186,8 @@ export type IntegrationDeps = {
 
 export type Integration = ReturnType<typeof createIntegration>;
 export const AWAITING_HUMAN = ["open", "returned"] as const;
+/** Consecutive red-check rejections for one crew before it escalates to the human. */
+export const REJECT_LIMIT = 3;
 
 export function createIntegration(deps: IntegrationDeps) {
   const { store, port, models, delivery } = deps;
@@ -240,6 +262,38 @@ export function createIntegration(deps: IntegrationDeps) {
 
   async function returnToHuman(merge: MergeRequestRow, reason: string, checksOutput?: string): Promise<MergeRequestRow> {
     return store.updateMerge(merge.id, { state: "returned", reason, ...(checksOutput !== undefined ? { checksOutput } : {}) });
+  }
+
+  /** Red-check rejections this crew racked up right before `excludeId`, most recent first, stopping at a merge or a non-checks reason. */
+  function consecutiveRedChecks(crewId: string, excludeId: string): number {
+    const merges = store.listMerges({ crewId }).filter((row) => row.id !== excludeId);
+    let count = 0;
+    for (let i = merges.length - 1; i >= 0; i -= 1) {
+      const row = merges[i]!;
+      if (row.state === "merged") break;
+      if (!row.reason?.startsWith("checks")) break;
+      count += 1;
+    }
+    return count;
+  }
+
+  /** Red checks (test failures or an environment error): back to the crew lead, not the human — until this crew racks up too many in a row. */
+  async function rejectChecks(merge: MergeRequestRow, crew: CrewRow, reason: string, output: string): Promise<MergeRequestRow> {
+    const failures = consecutiveRedChecks(crew.id, merge.id) + 1;
+    if (failures >= REJECT_LIMIT) return returnToHuman(merge, `${reason} (${REJECT_LIMIT} failed checks in a row; needs you)`, output);
+    const rejected = store.updateMerge(merge.id, { state: "rejected", reason, checksOutput: output });
+    const crewLead = lead(crew);
+    if (crewLead) {
+      delivery.send({
+        projectId: crew.projectId,
+        from: { kind: "system" },
+        to: crewLead.address,
+        subject: `Merge request ${merge.id}: checks failed`,
+        body: `${reason}\n\n${tailLines(output, 40)}\n\nfix, then crew_deliver again`,
+        crew: crew.name,
+      });
+    }
+    return rejected;
   }
 
   async function perform(merge: MergeRequestRow, by: string): Promise<MergeRequestRow> {
@@ -380,7 +434,10 @@ export function createIntegration(deps: IntegrationDeps) {
       if (!command) return returnToHuman(merge, "the crew file defines no checks command; the integrator merges only on green checks");
       if (!env?.path || !git) return returnToHuman(merge, "the crew branch's worktree is unknown");
       const result = await git.checks(env.path, command);
-      if (!result.ok) return returnToHuman(merge, `checks failed: ${command}`, result.output);
+      if (result.kind !== "ok") {
+        const reason = `checks ${result.kind === "env" ? "could not run (environment)" : "failed"}: ${command}`;
+        return rejectChecks(merge, crew, reason, result.output);
+      }
       store.updateMerge(merge.id, { checksOutput: result.output });
       return perform(store.getMerge(id)!, integrator.address);
     },
@@ -460,7 +517,7 @@ export function createFakeGit() {
     // Non-zero by default: a freshly requested merge has unmerged commits.
     aheadCount: 1 as number | null,
     isDirty: false,
-    checksResult: { ok: true, output: "ok" } as { ok: boolean; output: string },
+    checksResult: { kind: "ok", output: "ok" } as { kind: "ok" | "failed" | "env"; output: string },
     mergeResult: { ok: true, commit: "abc1234def" } as MergeOutcome,
     rebaseResult: { ok: true, head: "fff000" } as RebaseOutcome,
     count: (method: string) => calls.filter((call) => call.method === method).length,
