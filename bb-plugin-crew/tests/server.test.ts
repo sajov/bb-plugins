@@ -20,6 +20,34 @@ describe("server wiring", () => {
     await harness.lifecycle.dispose();
   });
 
+  it("getCrew decorates the crew with its project's name, like listCrews (BBP-79)", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "crew" });
+    harness.sdk.stub("projects.get", async () => ({ id: "p1", name: "My Project", sources: [] }));
+    await plugin(bb);
+    await harness.behavior.callRpc("saveCrewFile", {
+      projectId: "p1",
+      yaml: "version: 1\nname: solo\ngroups:\n  - id: g\n    members:\n      - id: me\n        provider: claude-code\n        model: m\n",
+    });
+    const result = (await harness.behavior.callRpc("getCrew", { projectId: "p1", name: "solo" })) as { crew: { projectName: string | null } | null };
+    expect(result.crew?.projectName).toBe("My Project");
+    await harness.lifecycle.dispose();
+  });
+
+  it("negative: getCrew falls back to no project name when the lookup fails", async () => {
+    const { bb, harness } = createFakePluginHost({ pluginId: "crew" });
+    harness.sdk.stub("projects.get", async () => {
+      throw new Error("no such project");
+    });
+    await plugin(bb);
+    await harness.behavior.callRpc("saveCrewFile", {
+      projectId: "p1",
+      yaml: "version: 1\nname: solo\ngroups:\n  - id: g\n    members:\n      - id: me\n        provider: claude-code\n        model: m\n",
+    });
+    const result = (await harness.behavior.callRpc("getCrew", { projectId: "p1", name: "solo" })) as { crew: { projectName: string | null } | null };
+    expect(result.crew?.projectName).toBeNull();
+    await harness.lifecycle.dispose();
+  });
+
   it("negative: saving an invalid crew file stores nothing", async () => {
     const { bb, harness } = createFakePluginHost({ pluginId: "crew" });
     await plugin(bb);
