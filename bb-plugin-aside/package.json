@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-aside",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A sidenav for BB with projects, sections and threads: sortable, collapsible, taggable.",
   "license": "MIT",
   "author": "sajov",

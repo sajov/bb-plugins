@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-graph-studio",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Build agent graphs that may contain cycles, run them, and watch them live. Nodes are BB threads.",
   "author": "sajov",
   "repository": {

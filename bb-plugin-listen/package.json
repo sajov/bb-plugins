@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-listen",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Offline speech-to-text and text-to-speech for BB, using open models.",
   "license": "MIT",
   "author": "sajov",
