@@ -214,7 +214,7 @@ function LeadLeadEdgeView({ id, sourceX, sourceY, targetX, targetY, data }: Edge
       <circle r={3} fill="var(--primary)">
         <animateMotion dur="1.4s" repeatCount="indefinite" path={path} />
       </circle>
-      <text x={midX} y={midY - 6} textAnchor="middle" fontSize={10} fill="var(--primary)">
+      <text x={midX} y={midY - 6} textAnchor="middle" fontSize={10} fontWeight={600} fill="var(--primary)" stroke="var(--background)" strokeWidth={3} paintOrder="stroke">
         {data!.count}
       </text>
     </g>
@@ -443,8 +443,9 @@ export function OverviewCanvas({
       </ReactFlowProvider>
       {/* BBP-97: the same line language as the Topology tab, shown here too — task→crew edges read
           as "assigns", idle lead↔lead edges as "works with", traffic on either as "messages". */}
-      <div className="absolute bottom-2 left-2 z-10 rounded-md bg-background/80 px-2 py-1 backdrop-blur-sm">
-        <TopologyLegend kinds={["assigns_to", "works_with"]} messages={edges.some((edge) => edge.kind === "lead-lead" && edge.active)} />
+      {/* left-14 keeps it clear of React Flow's zoom controls in the bottom-left corner. */}
+      <div className="absolute bottom-2 left-14 z-10 rounded-md bg-background/80 px-2 py-1 backdrop-blur-sm">
+        <TopologyLegend kinds={["assigns_to", "works_with", ...(expanded?.links.some((link) => link.kind === "escalates_to") ? ["escalates_to"] : [])]} messages={edges.some((edge) => edge.kind === "lead-lead" && edge.active)} />
       </div>
       {/* The opened crew's links as text: React Flow draws edges only after measuring, and screen readers need them anyway. */}
       {expanded ? (
