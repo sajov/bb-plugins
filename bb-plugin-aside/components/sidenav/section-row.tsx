@@ -3,7 +3,7 @@
 // In the host a section belongs to no project (its schema is only
 // { id, name }); it therefore appears in every project where it has threads.
 // The count on the right is — as everywhere — the toggle.
-import { useEffect, useRef, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { cn } from "@/lib/utils";
 import { RowCount, RowTail } from "@/components/sidenav/row-slots";
 import type { ThreadState } from "@/lib/tree";
@@ -21,6 +21,10 @@ import {
  *  `PROJECT_DRAG_TYPE` — dropping a project on a section row must not reorder
  *  sections, and dropping a section on a project row must not move a project. */
 export const SECTION_DRAG_TYPE = "application/x-aside-section";
+
+/** The section being dragged. `getData` is empty during dragover, so this is
+ *  how a row knows not to mark itself as a drop target. */
+let draggedSectionId: string | null = null;
 
 export function SectionRow({
   id,
@@ -71,6 +75,7 @@ export function SectionRow({
   const ref = useRef<HTMLInputElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  const [dropAt, setDropAt] = useState<"before" | "after" | null>(null);
   useEffect(() => {
     if (!renaming) return;
     ref.current?.focus();
@@ -85,11 +90,13 @@ export function SectionRow({
           draggable
           onDragStart={(event: DragEvent<HTMLDivElement>) => {
             dragging.current = true;
+            draggedSectionId = id;
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData(SECTION_DRAG_TYPE, id);
             event.dataTransfer.setData("text/plain", name);
           }}
           onDragEnd={() => {
+            draggedSectionId = null;
             window.setTimeout(() => {
               dragging.current = false;
             }, 0);
@@ -103,8 +110,24 @@ export function SectionRow({
             }
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
+            if (!event.dataTransfer.types.includes(SECTION_DRAG_TYPE)) return;
+            if (draggedSectionId === id) {
+              setDropAt(null);
+              return;
+            }
+            const bounds = rowRef.current?.getBoundingClientRect();
+            setDropAt(
+              bounds !== undefined && event.clientY >= bounds.top + bounds.height / 2
+                ? "after"
+                : "before",
+            );
+          }}
+          onDragLeave={(event) => {
+            if (rowRef.current?.contains(event.relatedTarget as Node | null)) return;
+            setDropAt(null);
           }}
           onDrop={(event) => {
+            setDropAt(null);
             const sourceSectionId = event.dataTransfer.getData(SECTION_DRAG_TYPE);
             if (sourceSectionId && sourceSectionId !== id) {
               event.preventDefault();
@@ -132,7 +155,8 @@ export function SectionRow({
             event.preventDefault();
             onStartRename();
           }}
-          className="mt-1 flex cursor-grab select-none items-center gap-2 rounded-md px-2 py-0.5 hover:bg-sidebar-accent/60 active:cursor-grabbing"
+          data-drop={dropAt ?? undefined}
+          className="relative mt-1 flex cursor-grab select-none items-center gap-2 rounded-md px-2 py-0.5 hover:bg-sidebar-accent/60 active:cursor-grabbing"
         >
           {renaming ? (
             <input
@@ -169,6 +193,15 @@ export function SectionRow({
             </span>
           ) : null}
           <RowTail age={age} now={now} state={state} className="ml-auto" />
+          {dropAt !== null ? (
+            <span
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute inset-x-1 h-0.5 rounded-full bg-[color:var(--primary,#006fee)]",
+                dropAt === "before" ? "-top-[3px]" : "-bottom-[3px]",
+              )}
+            />
+          ) : null}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-60">

@@ -152,4 +152,37 @@ describe("section row drag and drop", () => {
     fireEvent.drop(handle, { dataTransfer: dataTransfer({ [THREAD_DRAG_TYPE]: "t1" }) });
     expect(onDropThread).toHaveBeenCalledWith("t1");
   });
+
+  it("marks the drop position while another section hovers and clears it on drop", () => {
+    render(row(vi.fn()));
+    const handle = screen.getByText("Backlog").closest("[draggable]")!;
+    vi.spyOn(handle, "getBoundingClientRect").mockReturnValue({
+      top: 0,
+      bottom: 20,
+      height: 20,
+      left: 0,
+      right: 100,
+      width: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    // An earlier test started a drag of this row; end it so the row is a
+    // drop target again.
+    fireEvent.dragEnd(handle);
+    const transfer = dataTransfer({ [SECTION_DRAG_TYPE]: "s2" });
+    const over = createEvent.dragOver(handle, { dataTransfer: transfer });
+    Object.defineProperty(over, "clientY", { value: 15 });
+    fireEvent(handle, over);
+    expect(handle.getAttribute("data-drop")).toBe("after");
+    dropAt(handle, 15, transfer);
+    expect(handle.hasAttribute("data-drop")).toBe(false);
+  });
+
+  it("shows no drop mark while a thread hovers", () => {
+    render(row(vi.fn()));
+    const handle = screen.getByText("Backlog").closest("[draggable]")!;
+    fireEvent.dragOver(handle, { dataTransfer: dataTransfer({ [THREAD_DRAG_TYPE]: "t1" }) });
+    expect(handle.hasAttribute("data-drop")).toBe(false);
+  });
 });
