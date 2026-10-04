@@ -33,6 +33,7 @@ import { CREW_ICON, CrewTeam } from "./components/crew-icon";
 import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, MemberBadge } from "./components/crew-surfaces";
 import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
 import { CrewOverviewFullscreen } from "./components/crew-overview-fullscreen";
+import { CrewEditFullscreen } from "./components/crew-edit-fullscreen";
 import type { OverviewSource } from "./lib/overview-graph";
 import { CommsStrip, MessageCard } from "./components/crew-comms";
 import { CrewBoardCanvas, type BoardLine } from "./components/crew-board";
@@ -1366,6 +1367,9 @@ function CrewsPage() {
   // way ProjectOverview fetches one, kept live by the same poll ProjectBoard
   // already relies on for merges and behind-main (no push channel for either).
   const [diagramOpen, setDiagramOpen] = useState(false);
+  // BBP-80: the fullscreen editor holds the crew file text it was opened with.
+  const [editYaml, setEditYaml] = useState<string | null>(null);
+  const readCrewFile = async () => (crew ? ((await rpc.call("getCrewFile", { projectId: crew.projectId, name: crew.name })).yaml ?? "") : "");
   const [overviews, setOverviews] = useState<Map<string, OverviewSource>>(new Map());
   useEffect(() => {
     if (!diagramOpen) return;
@@ -1513,6 +1517,9 @@ function CrewsPage() {
                   </span>
                   <NeedsYouBadge count={needsByCrew} />
                   <span className="flex-1" />
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void readCrewFile().then(setEditYaml, (cause: unknown) => setError(String(cause)))}>
+                    <Icon name="Pencil" className="size-4" /> Edit
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -1628,6 +1635,27 @@ function CrewsPage() {
           </div>
         )}
       </div>
+      {editYaml !== null && crew ? (
+        <CrewEditFullscreen
+          title={`${projects.find((project) => project.id === crew.projectId)?.name ?? crew.projectId} — ${crew.name}`}
+          initialYaml={editYaml}
+          statuses={Object.fromEntries(members.flatMap((member) => (member.status ? [[member.key, member.status]] : [])))}
+          onSave={async (text) => {
+            const result = await rpc.call("saveCrewFile", { projectId: crew.projectId, yaml: text });
+            const errors = result.problems.filter((problem) => problem.level === "error");
+            if (errors.length > 0 || !result.crew) return errors.map((problem) => problem.message).join("; ") || "The crew file was not saved.";
+            refetch();
+            loadCrew();
+            return null;
+          }}
+          onReload={readCrewFile}
+          onOverview={() => {
+            setEditYaml(null);
+            setView("overview");
+          }}
+          onClose={() => setEditYaml(null)}
+        />
+      ) : null}
       {diagramOpen ? (
         <CrewOverviewFullscreen
           projects={projects}
