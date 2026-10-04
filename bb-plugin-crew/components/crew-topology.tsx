@@ -13,7 +13,7 @@ import "@xyflow/react/dist/style.css";
 import type { ActivityDto, MemberDto, MessageDto } from "../server";
 import { shownFlows, type Flow } from "../lib/comms";
 import { crewLayers, MARGIN, pathBetween, placeLayers, slots, type Box } from "../lib/canvas-layout";
-import { activityLabel, LINK_STYLE } from "../lib/topology";
+import { activityLabel, activityTone, hasErrorReason, LINK_STYLE, RUNNING, SEVERITY_TEXT, SEVERITY_TEXT_COLOR, severityTint, topReasonLabel } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
@@ -33,10 +33,10 @@ function shortModel(model: string | null): string {
 // ---------------------------------------------------------------------------
 // Card
 
-/** Activity in Graph Studio's status vocabulary: working runs, needs-you waits on you, error failed. */
-type Visual = "idle" | "running" | "waiting" | "failed" | "off";
+/** Activity in Graph Studio's status vocabulary: working runs, a decision or error waits on you, error failed. */
+type Visual = "idle" | "running" | "decision" | "waiting" | "failed" | "off";
 export function visualOf(view: ActivityDto | null, thread: MemberDto["thread"]): Visual {
-  if (view && view.needsYou.length > 0) return "waiting";
+  if (view && view.needsYou.length > 0) return hasErrorReason(view.needsYou) ? "waiting" : "decision";
   if (thread !== "present") return "off";
   switch (view?.activity) {
     case "working":
@@ -51,21 +51,24 @@ export function visualOf(view: ActivityDto | null, thread: MemberDto["thread"]):
 const FILL: Record<Visual, string> = {
   idle: "var(--card)",
   off: "var(--card)",
-  running: "color-mix(in oklab, var(--primary) 14%, var(--card))",
+  running: `color-mix(in oklab, ${RUNNING} 14%, var(--card))`,
+  decision: "color-mix(in oklab, var(--warning) 12%, var(--card))",
   waiting: "color-mix(in oklab, var(--destructive) 12%, var(--card))",
   failed: "color-mix(in oklab, var(--destructive) 12%, var(--card))",
 };
 const STROKE: Record<Visual, string> = {
   idle: "var(--border)",
   off: "var(--border)",
-  running: "var(--primary)",
+  running: RUNNING,
+  decision: "var(--warning)",
   waiting: "var(--destructive)",
   failed: "var(--destructive)",
 };
 const DOT: Record<Visual, string> = {
   idle: "color-mix(in oklab, var(--muted-foreground) 50%, transparent)",
   off: "color-mix(in oklab, var(--muted-foreground) 30%, transparent)",
-  running: "var(--primary)",
+  running: RUNNING,
+  decision: "var(--warning)",
   waiting: "var(--destructive)",
   failed: "var(--destructive)",
 };
@@ -75,7 +78,8 @@ export type MemberNodeData = { member: MemberDto; view: ActivityDto | null; sele
 export function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
   const { member, view, selected } = data;
   const visual = visualOf(view, member.thread);
-  const needs = visual === "waiting";
+  const needs = visual === "waiting" || visual === "decision";
+  const reason = needs ? topReasonLabel(view?.needsYou ?? []) : null;
   return (
     <div
       className={cn("relative h-full w-full cursor-pointer", visual === "off" && "opacity-55")}
@@ -101,9 +105,9 @@ export function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
         ) : null}
         <div className="relative flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.06em] text-muted-foreground">
           <span className="truncate">{member.lead ? "lead" : member.groupId || "member"}</span>
-          <span className="flex shrink-0 items-center gap-1 normal-case tracking-normal" style={needs ? { color: "var(--destructive)" } : undefined}>
+          <span className="flex shrink-0 items-center gap-1 normal-case tracking-normal" style={needs ? { color: SEVERITY_TEXT_COLOR[visual === "decision" ? "decision" : "error"] } : undefined}>
             <span aria-hidden className={cn("size-1.5 rounded-full", visual === "running" && "animate-pulse")} style={{ background: DOT[visual] }} />
-            {needs ? "needs you" : visual === "running" ? "working" : visual === "failed" ? "error" : null}
+            {reason ?? (visual === "running" ? "working" : visual === "failed" ? "error" : null)}
           </span>
         </div>
         <span className="relative truncate text-xs font-medium text-foreground" title={member.address}>
@@ -559,6 +563,7 @@ export function MemberCard({
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const needs = (view?.needsYou.length ?? 0) > 0;
+  const isError = hasErrorReason(view?.needsYou ?? []);
   // A BB interaction (approval, provider question) is answered in the thread; a crew_send question here.
   const inThread = view?.needsYou.some((reason) => reason === "approval" || reason === "question") ?? false;
   return (
@@ -569,8 +574,12 @@ export function MemberCard({
         subtitle={`${member.address}${member.shift !== null ? ` · Shift ${member.shift}` : ""}`}
       />
       {needs ? (
-        <div className="mb-3 flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5" data-needs-you="true">
-          <b className="block text-destructive">Needs you</b>
+        <div
+          className="mb-3 flex flex-col gap-2 rounded-lg border p-2.5"
+          style={severityTint(isError ? "error" : "decision", 5, 30)}
+          data-needs-you="true"
+        >
+          <b className={cn("block", SEVERITY_TEXT[isError ? "error" : "decision"])}>{isError ? "Error" : "Needs a decision"}</b>
           {/* One line of context per reason: a bare "loop" with an empty box asked for input nobody could give. */}
           <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="Reasons">
             {view!.needsYou.map((reason) => (

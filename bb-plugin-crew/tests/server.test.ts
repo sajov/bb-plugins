@@ -110,7 +110,7 @@ describe("server wiring (E2)", () => {
     }
     expect(harness.registrations.threadEventHandlers["thread.idle"]).toBe(1);
     expect(harness.registrations.threadEventHandlers["interaction.pending"]).toBe(1);
-    expect(await harness.behavior.callRpc("rowStatuses", {})).toEqual({ rows: [], needsYou: 0, byProject: {} });
+    expect(await harness.behavior.callRpc("rowStatuses", {})).toEqual({ rows: [], needsYou: 0, errors: 0, decisions: 0, byProject: {} });
     const refused = (await harness.behavior.callRpc("sendMessage", { projectId: "p1", to: "dev@nowhere", body: "x" })) as { error: string };
     expect(refused.error).toContain('no crew "nowhere"');
     await harness.lifecycle.dispose();

@@ -15,6 +15,7 @@ import { parseLimitStatus } from "./lib/capacity";
 import { createTasksRpcPort } from "./lib/dependencies";
 import { z } from "zod";
 import { liveViews, type ActivityView } from "./lib/activity";
+import { reasonCounts } from "./lib/topology";
 import { registerAgentTools, type Confirm } from "./lib/agent";
 import { CONTRACT_VERSION } from "./lib/contract";
 import { openLayout } from "./lib/layout";
@@ -412,6 +413,9 @@ export const rpcContract = defineRpcContract({
     output: z.object({
       rows: z.array(z.object({ threadId: z.string(), status: rowStatusSchema.nullable() })),
       needsYou: z.number(),
+      /** BBP-95: errors and decisions counted apart, so the badge can tell them apart (red vs. amber). */
+      errors: z.number().default(0),
+      decisions: z.number().default(0),
       /** Needs you per project: the header counts every project, the panel shows one. */
       byProject: z.record(z.string(), z.number()).default({}),
     }),
@@ -1049,9 +1053,12 @@ export default async function plugin(bb: BbPluginApi) {
     rowStatuses: () => {
       const live = new Set(store.listCrews().flatMap((crew) => store.listMembers(crew.id).map((member) => member.id)));
       const views = liveViews(service.activity.cached(), live);
+      const { errors, decisions } = reasonCounts(views.flatMap((view) => view.needsYou));
       return {
         rows: views.map((view) => ({ threadId: view.threadId!, status: view.rowStatus })),
         needsYou: views.filter((view) => view.needsYou.length > 0).length,
+        errors,
+        decisions,
         byProject: views.reduce<Record<string, number>>((counts, view) => {
           if (view.needsYou.length > 0) counts[view.projectId] = (counts[view.projectId] ?? 0) + 1;
           return counts;

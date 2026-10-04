@@ -39,7 +39,7 @@ import { CrewEditFullscreen } from "./components/crew-edit-fullscreen";
 import { breadcrumb, zoomLevel, zoomOut, type ZoomPath } from "./lib/zoom-path";
 import { CommsStrip, MessageCard } from "./components/crew-comms";
 import { flowOf, messageFlows, recentFlowIds, timeline } from "./lib/comms";
-import { activityLabel } from "./lib/topology";
+import { activityLabel, activityTone, hasErrorReason, reasonCounts, SEVERITY_COLOR, SEVERITY_TEXT, severityTint, topReasonLabel } from "./lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -102,14 +102,19 @@ export async function fetchRowStatuses(pluginId: string, fetcher: typeof fetch =
 }
 
 /** Row statuses and the Needs-you count, kept current over realtime. */
-function useNeedsYou(): { count: number; byProject: Record<string, number> } {
+function useNeedsYou(): { count: number; errors: number; decisions: number; byProject: Record<string, number> } {
   const rpc = useRpc<typeof rpcContract>();
-  const [state, setState] = useState<{ count: number; byProject: Record<string, number> }>({ count: 0, byProject: {} });
+  const [state, setState] = useState<{ count: number; errors: number; decisions: number; byProject: Record<string, number> }>({
+    count: 0,
+    errors: 0,
+    decisions: 0,
+    byProject: {},
+  });
   const refetch = useCallback(() => {
     rpc.call("rowStatuses", {}).then(
       (result) => {
         applyRowStatuses(result.rows);
-        setState({ count: result.needsYou, byProject: result.byProject ?? {} });
+        setState({ count: result.needsYou, errors: result.errors ?? 0, decisions: result.decisions ?? 0, byProject: result.byProject ?? {} });
       },
       () => undefined,
     );
@@ -120,27 +125,39 @@ function useNeedsYou(): { count: number; byProject: Record<string, number> } {
   return state;
 }
 
-export function NeedsYouBadge({ count, onClick, title }: { count: number; onClick?: () => void; title?: string }) {
-  if (count === 0) return null;
+/** BBP-95: errors and decisions counted apart — red for a real failure, amber for a decision waiting on you. */
+export function NeedsYouBadge({ errors, decisions, onClick, title }: { errors: number; decisions: number; onClick?: () => void; title?: string }) {
+  if (errors === 0 && decisions === 0) return null;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className="flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-0.5 text-xs text-red-400"
-    >
-      <span className="inline-block size-2 rounded-full bg-red-400" />
-      {count} Needs you
+    <button type="button" onClick={onClick} title={title} className="flex items-center gap-1.5">
+      {errors > 0 ? (
+        <span className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs", SEVERITY_TEXT.error)} style={severityTint("error", 10, 30)}>
+          <span className="inline-block size-2 rounded-full" style={{ background: SEVERITY_COLOR.error }} />
+          {errors} error{errors === 1 ? "" : "s"}
+        </span>
+      ) : null}
+      {decisions > 0 ? (
+        <span className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs", SEVERITY_TEXT.decision)} style={severityTint("decision", 10, 30)}>
+          <span className="inline-block size-2 rounded-full" style={{ background: SEVERITY_COLOR.decision }} />
+          {decisions} waiting on you
+        </span>
+      ) : null}
     </button>
   );
 }
 
 function SidebarAccessory() {
   useRpcBridge();
-  const { count } = useNeedsYou();
-  if (count === 0) return null;
+  const { errors, decisions } = useNeedsYou();
+  if (errors === 0 && decisions === 0) return null;
+  const severity = errors > 0 ? "error" : "decision";
+  const count = errors + decisions;
   return (
-    <span aria-label={`${count} Needs you`} className="rounded-full bg-red-500/15 px-1.5 text-[10px] font-medium leading-4 text-red-400">
+    <span
+      aria-label={`${count} Needs you`}
+      className={cn("rounded-full px-1.5 text-[10px] font-medium leading-4", SEVERITY_TEXT[severity])}
+      style={severityTint(severity, 15)}
+    >
       {count}
     </span>
   );
@@ -149,8 +166,14 @@ function SidebarAccessory() {
 function HeaderContent() {
   useRpcBridge();
   // Every project's crews: the panel below shows one project, so the badge says where the rest are.
-  const { count } = useNeedsYou();
-  return <NeedsYouBadge count={count} title="Members that need you, across all projects — the project switch shows them per project" />;
+  const { errors, decisions } = useNeedsYou();
+  return (
+    <NeedsYouBadge
+      errors={errors}
+      decisions={decisions}
+      title="Members that need you, across all projects — the project switch shows them per project"
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -162,16 +185,13 @@ const STATUS_TONE: Record<string, string> = {
   degraded: "bg-amber-500",
   stopped: "bg-muted-foreground",
 };
-const ACTIVITY_TONE: Record<string, string> = {
-  working: "bg-amber-400",
-  idle: "bg-muted-foreground",
-  "needs-you": "bg-red-400",
-  error: "bg-red-500",
-  unknown: "bg-muted-foreground/40",
-};
-
 function Dot({ tone }: { tone: string }) {
   return <span className={cn("inline-block size-2 shrink-0 rounded-full", tone)} />;
+}
+
+/** A dot in a theme colour rather than a Tailwind class, for tones computed from the member's reasons (BBP-95). */
+function ToneDot({ color }: { color: string }) {
+  return <span className="inline-block size-2 shrink-0 rounded-full" style={{ background: color }} />;
 }
 
 function StatusDot({ status }: { status: string }) {
@@ -194,8 +214,9 @@ export function MembersTable({
   }
   const byKey = new Map(activity.map((view) => [view.key, view]));
   const rows: Row[] = members.map((member) => ({ member, activity: byKey.get(member.key) ?? null }));
-  // Needs you is a state of the member, shown where the member already is: on top, marked.
-  rows.sort((a, b) => Number((b.activity?.needsYou.length ?? 0) > 0) - Number((a.activity?.needsYou.length ?? 0) > 0));
+  // Needs you is a state of the member, shown where the member already is: on top, errors before decisions.
+  const rank = (view: ActivityDto | null) => (hasErrorReason(view?.needsYou ?? []) ? 2 : (view?.needsYou.length ?? 0) > 0 ? 1 : 0);
+  rows.sort((a, b) => rank(b.activity) - rank(a.activity));
   return (
     // Scrolls inside its own box on a phone instead of pushing the whole panel sideways.
     // A table on a wide panel; on a phone each member is a block, label-free, one fact per line.
@@ -213,8 +234,14 @@ export function MembersTable({
       <tbody className="divide-y divide-border max-sm:block">
         {rows.map(({ member, activity: view }) => {
           const needs = (view?.needsYou.length ?? 0) > 0;
+          const isError = hasErrorReason(view?.needsYou ?? []);
           return (
-            <tr key={member.key} data-needs-you={needs ? "true" : undefined} className={cn("max-sm:block max-sm:py-2 [&>td]:max-sm:block [&>td]:max-sm:py-0.5", needs && "bg-red-500/5")}>
+            <tr
+              key={member.key}
+              data-needs-you={needs ? "true" : undefined}
+              className={cn("max-sm:block max-sm:py-2 [&>td]:max-sm:block [&>td]:max-sm:py-0.5", )}
+              style={needs ? severityTint(isError ? "error" : "decision", 5) : undefined}
+            >
               <td className="py-2 pr-3 align-top font-mono text-xs">
                 {member.address}
                 {member.lead ? <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase">lead</span> : null}
@@ -229,13 +256,12 @@ export function MembersTable({
                 {view ? (
                   <div className="flex flex-col gap-1">
                     <span className="flex flex-wrap items-center gap-x-1.5">
-                      <Dot tone={ACTIVITY_TONE[view.activity] ?? "bg-muted-foreground"} />
-                      <span data-activity-label>{activityLabel({ ...view, needsYou: [] }, view.activity)}</span>
-                      {needs ? <span className="text-xs text-red-400">Needs you: {view.needsYou.join(", ")}</span> : null}
+                      <ToneDot color={activityTone(view.activity, view.needsYou)} />
+                      <span data-activity-label>{topReasonLabel(view.needsYou) ?? activityLabel({ ...view, needsYou: [] }, view.activity)}</span>
                     </span>
                     {view.diagnoses.length > 0 ? <span className="text-xs text-amber-400">{view.diagnoses.join(" · ")}</span> : null}
                     {view.question ? (
-                      <div className="rounded-md border border-red-500/30 bg-red-500/10 p-2 text-xs">
+                      <div className="rounded-md border p-2 text-xs" style={severityTint(isError ? "error" : "decision", 10, 30)}>
                         <p className="whitespace-pre-wrap">{view.question}</p>
                         {onReply ? (
                           <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => onReply(member.address)}>
@@ -1271,7 +1297,7 @@ function CrewsPage() {
   const [members, setMembers] = useState<MemberDto[]>([]);
   const [links, setLinks] = useState<{ from: string; to: string; kind: string }[]>([]);
   const [yaml, setYaml] = useState<string | null>(null);
-  const [needsByCrew, setNeedsByCrew] = useState(0);
+  const [needsByCrew, setNeedsByCrew] = useState({ errors: 0, decisions: 0 });
   const [activity, setActivity] = useState<ActivityDto[]>([]);
   const [work, setWork] = useState<WorkDto[]>([]);
   const [filters, setFilters] = useState<OverviewFilters>(DEFAULT_OVERVIEW_FILTERS);
@@ -1342,7 +1368,7 @@ function CrewsPage() {
     rpc.call("getActivity", { projectId: crew.projectId, name: crew.name }).then(
       (result) => {
         setActivity(result.members);
-        setNeedsByCrew(result.members.filter((view) => view.needsYou.length > 0).length);
+        setNeedsByCrew(reasonCounts(result.members.flatMap((view) => view.needsYou)));
       },
       () => undefined,
     );
@@ -1471,7 +1497,7 @@ function CrewsPage() {
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <StatusDot status={crew.status} /> {crew.status} · {members.length} members · file v{crew.fileVersion}
                   </span>
-                  <NeedsYouBadge count={needsByCrew} />
+                  <NeedsYouBadge errors={needsByCrew.errors} decisions={needsByCrew.decisions} />
                   <span className="flex-1" />
                   <Button size="sm" variant="outline" disabled={busy} onClick={() => void readCrewFile().then(setEditYaml, (cause: unknown) => setError(String(cause)))}>
                     <Icon name="Pencil" className="size-4" /> Edit

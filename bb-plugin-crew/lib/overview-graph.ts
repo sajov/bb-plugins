@@ -9,6 +9,8 @@
 // diagram just draws several of them side by side, framed by project, with
 // task nodes derived from each crew's own ticket and its open dependencies.
 
+import { hasErrorReason } from "./topology";
+
 export type OverviewProject = { id: string; name: string };
 
 /** The subset of `OverviewDto` the diagram reads — see server.ts's `overviewSchema`. */
@@ -20,7 +22,7 @@ export type OverviewSource = {
     task: string | null;
     branch: string | null;
     needsYou: number;
-    members: ReadonlyArray<{ key: string; lead: boolean; activity: string }>;
+    members: ReadonlyArray<{ key: string; lead: boolean; activity: string; needsYou?: readonly string[] }>;
     /** BB tasks carrying the label `crew-<name>` — the source of truth for factory crews, which never set `task` (BBP-84). */
     labelTasks?: ReadonlyArray<{ key: string; title: string; status: string }>;
   }>;
@@ -36,8 +38,10 @@ export type CrewNode = {
   status: string;
   branch: string | null;
   task: string | null;
-  members: ReadonlyArray<{ key: string; lead: boolean; activity: string }>;
+  members: ReadonlyArray<{ key: string; lead: boolean; activity: string; needsYou?: readonly string[] }>;
   needsYou: number;
+  /** BBP-95: a real failure anywhere in the crew outranks a mere decision — red vs. amber. */
+  needsYouSeverity: "error" | "decision" | null;
 };
 
 export type TaskNode = {
@@ -56,7 +60,7 @@ export type LeadLeadEdge = { kind: "lead-lead"; id: string; from: string; to: st
 export type OverviewEdge = TaskCrewEdge | LeadLeadEdge;
 
 /** A project's cluster on the top zoom level: how many crews, how many run, how many wait on you. */
-export type ProjectSummary = OverviewProject & { crewCount: number; taskCount: number; runningCount: number; needsYouCount: number };
+export type ProjectSummary = OverviewProject & { crewCount: number; taskCount: number; runningCount: number; needsYouCount: number; errorCount: number };
 
 export type OverviewGraph = {
   projects: ReadonlyArray<ProjectSummary>;
@@ -91,7 +95,7 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
   for (const project of projects) {
     const overview = overviews.get(project.id);
     if (!overview) {
-      projectSummaries.push({ ...project, crewCount: 0, taskCount: 0, runningCount: 0, needsYouCount: 0 });
+      projectSummaries.push({ ...project, crewCount: 0, taskCount: 0, runningCount: 0, needsYouCount: 0, errorCount: 0 });
       continue;
     }
     const taskIds = new Map<string, TaskNode>();
@@ -120,6 +124,7 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
         task: crew.task,
         members: crew.members,
         needsYou: crew.needsYou,
+        needsYouSeverity: hasErrorReason(crew.members.flatMap((member) => member.needsYou ?? [])) ? "error" : crew.needsYou > 0 ? "decision" : null,
       });
       if (crew.task) {
         const task = ensureTask(crew.task, false);
@@ -160,6 +165,8 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
       taskCount: taskIds.size,
       runningCount: overview.crews.filter((crew) => crew.status === "running").length,
       needsYouCount: overview.crews.filter((crew) => crew.needsYou > 0).length,
+      // BBP-95: crews with a real failure, counted apart from those that only wait on a decision.
+      errorCount: overview.crews.filter((crew) => hasErrorReason(crew.members.flatMap((member) => member.needsYou ?? []))).length,
     });
   }
 

@@ -19,12 +19,17 @@ describe("theme tokens only (BBP-83)", () => {
   });
 });
 
-describe("activity dots follow the theme (BBP-83)", () => {
-  it("every activity tone is a theme variable; needs you reads as destructive", async () => {
+describe("activity dots follow the theme (BBP-83, BBP-95)", () => {
+  // --warning / --warning-text are host theme tokens (bb-theme-authoring skill, "Status" row:
+  // --success --warning --warning-text --destructive --destructive-text), the amber counterpart
+  // to --destructive / --destructive-text that the codebase already relies on.
+  it("every activity tone is a theme variable; an error reason reads as destructive", async () => {
     const { activityTone } = await import("../lib/topology");
-    for (const activity of ["working", "idle", "error", "unknown"]) expect(activityTone(activity, false)).toMatch(/^var\(--/);
-    expect(activityTone("idle", true)).toBe("var(--destructive)");
-    // negative: idle without Needs you is not destructive
-    expect(activityTone("idle", false)).not.toBe("var(--destructive)");
+    for (const activity of ["working", "idle", "error", "unknown"]) expect(activityTone(activity, [])).toMatch(/^var\(--/);
+    expect(activityTone("idle", ["error"])).toBe("var(--destructive)");
+    // negative: idle without a reason is not destructive
+    expect(activityTone("idle", [])).not.toBe("var(--destructive)");
+    // BBP-95: a decision reason (no error) is amber, not destructive
+    expect(activityTone("idle", ["merge-request"])).toBe("var(--warning)");
   });
 });
