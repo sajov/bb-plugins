@@ -197,7 +197,7 @@ export function SectionRow({
             <span
               aria-hidden
               className={cn(
-                "pointer-events-none absolute inset-x-1 h-0.5 rounded-full bg-[color:var(--primary,#006fee)]",
+                "pointer-events-none absolute inset-x-1 h-px bg-[color:var(--muted-foreground)]",
                 dropAt === "before" ? "-top-[3px]" : "-bottom-[3px]",
               )}
             />
