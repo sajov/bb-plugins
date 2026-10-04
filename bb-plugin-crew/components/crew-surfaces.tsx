@@ -126,7 +126,14 @@ export function CrewDirectiveCard({ attributes, message }: Pick<PluginMessageDir
           {crew.status} · {views.length} members · file v{crew.fileVersion}
         </span>
         {errors > 0 ? <span className="ml-auto rounded-full border border-destructive/40 bg-destructive/10 px-2 text-destructive">{errors} error{errors === 1 ? "" : "s"}</span> : null}
-        {decisions > 0 ? <span className={cn("rounded-full border border-warning/40 bg-warning/10 px-2 text-warning", errors === 0 && "ml-auto")}>{decisions} waiting</span> : null}
+        {decisions > 0 ? (
+          <span
+            className={cn("rounded-full border px-2 text-[color:var(--warning-text,var(--warning))]", errors === 0 && "ml-auto")}
+            style={{ borderColor: "color-mix(in oklab, var(--warning) 40%, transparent)", background: "color-mix(in oklab, var(--warning) 10%, transparent)" }}
+          >
+            {decisions} waiting
+          </span>
+        ) : null}
       </div>
       <ul className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Members">
         {views.map((view) => (

@@ -20,6 +20,9 @@ describe("theme tokens only (BBP-83)", () => {
 });
 
 describe("activity dots follow the theme (BBP-83, BBP-95)", () => {
+  // --warning / --warning-text are host theme tokens (bb-theme-authoring skill, "Status" row:
+  // --success --warning --warning-text --destructive --destructive-text), the amber counterpart
+  // to --destructive / --destructive-text that the codebase already relies on.
   it("every activity tone is a theme variable; an error reason reads as destructive", async () => {
     const { activityTone } = await import("../lib/topology");
     for (const activity of ["working", "idle", "error", "unknown"]) expect(activityTone(activity, [])).toMatch(/^var\(--/);

@@ -575,7 +575,8 @@ export function MemberCard({
       />
       {needs ? (
         <div
-          className={cn("mb-3 flex flex-col gap-2 rounded-lg border p-2.5", isError ? "border-destructive/30 bg-destructive/5" : "border-warning/30 bg-warning/5")}
+          className={cn("mb-3 flex flex-col gap-2 rounded-lg border p-2.5", isError && "border-destructive/30 bg-destructive/5")}
+          style={!isError ? { borderColor: "color-mix(in oklab, var(--warning) 30%, transparent)", background: "color-mix(in oklab, var(--warning) 5%, transparent)" } : undefined}
           data-needs-you="true"
         >
           <b className={cn("block", isError ? "text-destructive-text" : "text-warning-text")}>{isError ? "Error" : "Needs a decision"}</b>
