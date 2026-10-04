@@ -180,9 +180,9 @@ function HeaderContent() {
 // Members table
 
 const STATUS_TONE: Record<string, string> = {
-  running: "bg-emerald-500",
-  starting: "bg-sky-500",
-  degraded: "bg-amber-500",
+  running: "bg-success",
+  starting: "bg-primary",
+  degraded: "bg-warning",
   stopped: "bg-muted-foreground",
 };
 function Dot({ tone }: { tone: string }) {
@@ -259,7 +259,7 @@ export function MembersTable({
                       <ToneDot color={activityTone(view.activity, view.needsYou)} />
                       <span data-activity-label>{topReasonLabel(view.needsYou) ?? activityLabel({ ...view, needsYou: [] }, view.activity)}</span>
                     </span>
-                    {view.diagnoses.length > 0 ? <span className="text-xs text-amber-400">{view.diagnoses.join(" · ")}</span> : null}
+                    {view.diagnoses.length > 0 ? <span className="text-xs text-warning-text">{view.diagnoses.join(" · ")}</span> : null}
                     {view.question ? (
                       <div className="rounded-md border p-2 text-xs" style={severityTint(isError ? "error" : "decision", 10, 30)}>
                         <p className="whitespace-pre-wrap">{view.question}</p>
@@ -298,14 +298,14 @@ export function MembersTable({
 
 const MESSAGE_STATUSES = ["pending", "delivered", "queued", "on_hold", "throttled", "stopped_loop", "rejected", "failed"] as const;
 const STATUS_TEXT: Record<string, string> = {
-  delivered: "text-emerald-400",
-  queued: "text-emerald-400",
-  pending: "text-sky-400",
-  on_hold: "text-amber-400",
-  throttled: "text-amber-400",
-  stopped_loop: "text-red-400",
-  rejected: "text-red-400",
-  failed: "text-red-400",
+  delivered: "text-[color-mix(in_oklab,var(--success)_60%,var(--foreground))]",
+  queued: "text-[color-mix(in_oklab,var(--success)_60%,var(--foreground))]",
+  pending: "text-foreground",
+  on_hold: "text-warning-text",
+  throttled: "text-warning-text",
+  stopped_loop: "text-destructive-text",
+  rejected: "text-destructive-text",
+  failed: "text-destructive-text",
 };
 const HOLDABLE = new Set(["on_hold", "stopped_loop", "throttled"]);
 
@@ -345,15 +345,15 @@ export function MessageItem({
           <span className="font-mono">{message.fromAddress}</span>→<span className="font-mono">{message.toAddress}</span>
           <span className={cn("font-medium", STATUS_TEXT[message.status])}>{message.status}</span>
           <span>step {message.step}</span>
-          {message.crossCrew ? <span className="rounded bg-sky-500/15 px-1.5 text-[10px] uppercase text-sky-400">cross-crew</span> : null}
-          {message.kind === "info" ? <span className="rounded bg-emerald-500/15 px-1.5 text-[10px] uppercase text-emerald-400">info</span> : null}
-          {message.openQuestion ? <span className="rounded bg-red-500/15 px-1.5 text-[10px] uppercase text-red-400">open question</span> : null}
+          {message.crossCrew ? <span className="rounded bg-muted px-1.5 text-[10px] uppercase text-muted-foreground">cross-crew</span> : null}
+          {message.kind === "info" ? <span className="rounded bg-success/15 px-1.5 text-[10px] uppercase text-[color-mix(in_oklab,var(--success)_60%,var(--foreground))]">info</span> : null}
+          {message.openQuestion ? <span className="rounded bg-destructive/10 px-1.5 text-[10px] uppercase text-destructive-text">open question</span> : null}
           <span className="ml-auto">{time(message.createdAt)}</span>
         </div>
         <div className="mt-0.5 text-sm">{message.subject}</div>
         {/* Flattened and cut here: Safari keeps the full height of a pre-wrapped body under line-clamp, which left a screen of empty space per message. */}
         <div className="line-clamp-2 max-h-8 overflow-hidden break-words text-xs leading-4 text-muted-foreground">{preview(message.body)}</div>
-        {message.reason ? <div className="text-xs text-amber-400">{message.reason}</div> : null}
+        {message.reason ? <div className="text-xs text-warning-text">{message.reason}</div> : null}
       </button>
       <div className="mt-1 flex gap-1.5">
         {replyTo && onReply ? (
@@ -738,10 +738,10 @@ export function WorkSection({ crew }: { crew: CrewDto }) {
       ) : (
         <ul aria-label="Work items" className="flex flex-col gap-1 text-sm">
           {items.map((item) => (
-            <li key={item.id} data-rung={item.rung} className={cn(item.rung >= 4 && "text-red-400")}>
+            <li key={item.id} data-rung={item.rung} className={cn(item.rung >= 4 && "text-destructive-text")}>
               <span className="font-mono text-xs text-muted-foreground">{item.id}</span> [{item.state}] {item.tier} {item.title} ·{" "}
               <span className="font-mono text-xs">{item.owner ?? "unassigned"}</span>
-              {item.rung > 0 ? <span className="ml-1 text-xs text-amber-400">follow-up {item.rung}/4</span> : null}
+              {item.rung > 0 ? <span className="ml-1 text-xs text-warning-text">follow-up {item.rung}/4</span> : null}
             </li>
           ))}
         </ul>

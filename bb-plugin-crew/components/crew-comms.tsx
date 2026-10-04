@@ -17,12 +17,12 @@ export const REPLAY_STEP_MS = 1600;
 const TICK_TONE: Record<string, string> = {
   delivered: "border-border bg-card",
   queued: "border-border bg-card",
-  pending: "border-sky-500/40 bg-sky-500/10",
-  on_hold: "border-amber-500/40 bg-amber-500/10",
-  throttled: "border-amber-500/40 bg-amber-500/10",
-  stopped_loop: "border-red-500/40 bg-red-500/10",
-  rejected: "border-red-500/40 bg-red-500/10",
-  failed: "border-red-500/40 bg-red-500/10",
+  pending: "border-primary/40 bg-primary/10",
+  on_hold: "border-warning/40 bg-warning/10",
+  throttled: "border-warning/40 bg-warning/10",
+  stopped_loop: "border-destructive/40 bg-destructive/10",
+  rejected: "border-destructive/40 bg-destructive/10",
+  failed: "border-destructive/40 bg-destructive/10",
 };
 
 export function CommsStrip({
@@ -157,7 +157,7 @@ export function MessageCard({
         <dt className="text-muted-foreground">Status</dt>
         <dd className="m-0" data-message-status={message.status}>
           {message.status}
-          {message.reason ? <span className="text-amber-400"> · {message.reason}</span> : null}
+          {message.reason ? <span className="text-warning-text"> · {message.reason}</span> : null}
         </dd>
         <dt className="text-muted-foreground">Sent</dt>
         <dd className="m-0">{new Date(message.createdAt).toISOString().slice(0, 16).replace("T", " ")}</dd>
