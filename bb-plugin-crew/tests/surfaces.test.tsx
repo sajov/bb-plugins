@@ -63,7 +63,11 @@ const backend = (overrides: Record<string, (input: unknown) => unknown> = {}) =>
 });
 
 async function openCrew(slot: ReturnType<typeof renderSlot>, tab: string) {
-  fireEvent.click(await slot.findByRole("button", { name: "trio" }));
+  fireEvent.click(await waitFor(() => {
+    const node = slot.container.querySelector<HTMLElement>('[data-crew-node="trio"]');
+    expect(node).not.toBeNull();
+    return node!;
+  }));
   fireEvent.click(await slot.findByRole("button", { name: tab }));
 }
 
@@ -551,7 +555,7 @@ describe("topology canvas surfaces", () => {
 });
 
 describe("crew header", () => {
-  it("dropdown, Open all and the ⋯ menu with Stop, Snapshot, Add member, Attach, Delete", async () => {
+  it("breadcrumb, Open all and the ⋯ menu with Stop, Snapshot, Add member, Attach, Delete", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const calls: { method: string; input: unknown }[] = [];
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
@@ -562,7 +566,9 @@ describe("crew header", () => {
       }),
     });
     await openCrew(slot, "Topology");
-    expect((slot.getByLabelText("Crew") as HTMLSelectElement).value).toBe("p1:trio");
+    // BBP-83: the breadcrumb names the crew; the old crew dropdown is gone.
+    expect(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "trio" }).getAttribute("aria-current")).toBe("page");
+    expect(slot.queryByLabelText("Crew")).toBeNull();
     fireEvent.click(slot.getByRole("button", { name: "Open all" }));
     await slot.findByText("Opened 2 thread(s) side by side");
     fireEvent.click(slot.getByRole("button", { name: "More crew actions" }));

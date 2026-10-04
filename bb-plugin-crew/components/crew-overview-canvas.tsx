@@ -1,15 +1,18 @@
-// Fullscreen overview diagram (BBP-71): the canvas, nodes and edges — a card
+// The Crews canvas (BBP-71, made the main view in BBP-83): levels 0 and 1 of
+// the semantic zoom — every project as a labelled cluster, then one project
+// zoomed in. The canvas, nodes and edges — a card
 // per crew/task, a labelled frame per project, animated edges for active
 // work — as our own copy of the reference look. No import or runtime
 // dependency on the sibling plugin; the only shared thing is @xyflow/react
 // itself (an independent dependency of this plugin, see package.json) and
 // the BB theme's own CSS variables, the same tokens components/crew-topology.tsx
 // already draws with.
-import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, type CSSProperties } from "react";
 import { Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type ColorMode, type Edge, type EdgeProps, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { cn } from "@/lib/utils";
 import {
+  DEFAULT_OVERVIEW_FILTERS,
   buildOverviewGraph,
   filterOverviewGraph,
   visibleOverviewEdges,
@@ -20,10 +23,11 @@ import {
   type OverviewNode,
   type OverviewProject,
   type OverviewSource,
+  type ProjectSummary,
   type TaskNode,
 } from "../lib/overview-graph";
 import { layoutOverview } from "../lib/overview-layout";
-import { colorLightness, FLOW_THEME as BASE_FLOW_THEME, useHostColorMode, useWidth } from "./crew-topology";
+import { colorLightness, FLOW_THEME as BASE_FLOW_THEME, useHostColorMode } from "./crew-topology";
 
 export { buildOverviewGraph, filterOverviewGraph, type OverviewFilters, type OverviewGraph, type OverviewProject, type OverviewSource };
 
@@ -55,6 +59,7 @@ function CrewNodeView({ data }: NodeProps<Node<{ crew: CrewNode; selected: boole
       className={cn("relative h-full w-full cursor-pointer", dim && "opacity-40")}
       role="button"
       tabIndex={0}
+      data-dim={dim ? "" : undefined}
       data-crew-node={crew.name}
       data-status={crew.status}
       aria-pressed={selected}
@@ -114,12 +119,34 @@ function TaskNodeView({ data }: NodeProps<Node<{ task: TaskNode; matched: boolea
   );
 }
 
-/** A project's labelled frame, drawn behind its crews and tasks (zIndex -1). */
-function FrameNodeView({ data }: NodeProps<Node<{ name: string; crewCount: number; taskCount: number }>>) {
+/** A project's cluster: its frame, drawn behind its crews and tasks (zIndex -1), with what runs and what waits on you. */
+function FrameNodeView({ data }: NodeProps<Node<{ project: ProjectSummary; dim: boolean }>>) {
+  const { project, dim } = data;
   return (
-    <div className="pointer-events-none h-full w-full rounded-xl border border-dashed border-border/70 bg-muted/10">
-      <div className="px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-        {data.name} · {data.crewCount} {data.crewCount === 1 ? "crew" : "crews"} · {data.taskCount} {data.taskCount === 1 ? "task" : "tasks"}
+    <div
+      data-project-frame={project.id}
+      role="button"
+      tabIndex={0}
+      aria-label={`Project ${project.name}`}
+      className={cn("h-full w-full cursor-zoom-in rounded-xl border border-dashed border-border bg-muted/20 hover:border-primary/60", dim && "opacity-40")}
+    >
+      <div className="flex items-center gap-3 px-3 py-2 text-xs">
+        <span className="truncate text-sm font-medium text-foreground">{project.name}</span>
+        <span className="text-muted-foreground">
+          {project.crewCount} {project.crewCount === 1 ? "crew" : "crews"}
+        </span>
+        {project.runningCount > 0 ? (
+          <span data-cluster="running" className="flex items-center gap-1 text-muted-foreground">
+            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-primary" />
+            {project.runningCount} running
+          </span>
+        ) : null}
+        {project.needsYouCount > 0 ? (
+          <span data-cluster="needs-you" className="flex items-center gap-1 text-destructive">
+            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-destructive" />
+            {project.needsYouCount} waiting on you
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -150,37 +177,35 @@ function LeadLeadEdgeView({ sourceX, sourceY, targetX, targetY }: EdgeProps<Edge
 
 const EDGE_TYPES = { "task-crew": TaskCrewEdgeView, "lead-lead": LeadLeadEdgeView };
 
-function Fit({ focus, layoutKey }: { focus: readonly string[]; layoutKey: string }) {
+/** Fits all projects, or zooms smoothly into one project's cluster. */
+function Fit({ focusProject, layoutKey }: { focusProject: string | null; layoutKey: string }) {
   const flow = useReactFlow();
-  const focusKey = focus.join("|");
   useLayoutEffect(() => {
-    if (focus.length > 0) void flow.fitView({ nodes: focus.map((id) => ({ id })), duration: 400, padding: 0.5, maxZoom: 1.2 });
-    else void flow.fitView({ padding: 0.08, duration: 300 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flow, focusKey, layoutKey]);
+    if (focusProject) void flow.fitView({ nodes: [{ id: `frame:${focusProject}` }], duration: 500, padding: 0.08, maxZoom: 1.5 });
+    else void flow.fitView({ padding: 0.08, maxZoom: 1, duration: 400 });
+  }, [flow, focusProject, layoutKey]);
   return null;
 }
 
 export function OverviewCanvas({
   projects,
   overviews,
-  filters,
-  selected,
-  onSelectCrew,
-  onOpenCrew,
+  focusProject,
+  onEnterProject,
+  onEnterCrew,
   onOpenTask,
+  filters = DEFAULT_OVERVIEW_FILTERS,
 }: {
   projects: readonly OverviewProject[];
   overviews: ReadonlyMap<string, OverviewSource>;
-  filters: OverviewFilters;
-  selected: string | null;
-  onSelectCrew: (id: string | null) => void;
-  onOpenCrew: (projectId: string, crewName: string) => void;
+  /** Level 1: the project zoomed into; null on level 0. */
+  focusProject: string | null;
+  onEnterProject: (projectId: string) => void;
+  onEnterCrew: (projectId: string, crewName: string) => void;
   onOpenTask: (projectId: string, taskKey: string) => void;
+  filters?: OverviewFilters;
 }) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
   const [colorRef, colorMode] = useHostColorMode();
-  const panelWidth = useWidth(hostRef);
 
   const graph = useMemo(() => buildOverviewGraph(projects, overviews), [projects, overviews]);
   const filtered = useMemo(() => filterOverviewGraph(graph, filters), [graph, filters]);
@@ -188,6 +213,10 @@ export function OverviewCanvas({
   const edges = useMemo(() => visibleOverviewEdges(graph, filtered.visible), [graph, filtered.visible]);
 
   const nodeById = useMemo(() => new Map<string, OverviewNode>(graph.nodes.map((node) => [node.id, node])), [graph]);
+
+  // Level 1 fades the other projects instead of hiding them: you see where you zoomed in from.
+  const dimmed = (node: OverviewNode) =>
+    (focusProject !== null && node.projectId !== focusProject) || (filters.search.trim() !== "" && !filtered.matched.has(node.id));
 
   const nodes: Node[] = [
     ...layout.frames.map((frame) => {
@@ -201,7 +230,7 @@ export function OverviewCanvas({
         style: { width: frame.width, height: frame.height, zIndex: -1 },
         draggable: false,
         selectable: false,
-        data: { name: project.name, crewCount: project.crewCount, taskCount: project.taskCount },
+        data: { project, dim: focusProject !== null && frame.projectId !== focusProject },
       };
     }),
     ...layout.placed.map((placed) => ({
@@ -214,8 +243,8 @@ export function OverviewCanvas({
       draggable: false,
       data:
         placed.node.kind === "crew"
-          ? { crew: placed.node, selected: placed.id === selected, matched: filtered.matched.has(placed.id), dim: filters.search.trim() !== "" && !filtered.matched.has(placed.id) }
-          : { task: placed.node, matched: filtered.matched.has(placed.id), dim: filters.search.trim() !== "" && !filtered.matched.has(placed.id) },
+          ? { crew: placed.node, selected: false, matched: filtered.matched.has(placed.id), dim: dimmed(placed.node) }
+          : { task: placed.node, matched: filtered.matched.has(placed.id), dim: dimmed(placed.node) },
     })),
   ];
 
@@ -229,14 +258,11 @@ export function OverviewCanvas({
 
   return (
     <div
-      ref={(element) => {
-        hostRef.current = element;
-        colorRef.current = element;
-      }}
-      // BBP-81: the layer gives the canvas its full height, as in Graph Studio;
+      ref={colorRef}
+      // BBP-81: the canvas takes the full height it is given, as in Graph Studio;
       // a height derived from the drawing left a thin strip of tiny cards.
       className="relative h-full w-full min-w-0 overflow-hidden rounded-lg border border-border bg-background"
-      aria-label="Crew overview diagram"
+      aria-label="Crews canvas"
     >
       <ReactFlowProvider>
         <ReactFlow
@@ -252,21 +278,19 @@ export function OverviewCanvas({
           nodesDraggable={false}
           nodesConnectable={false}
           proOptions={{ hideAttribution: true }}
-          onPaneClick={() => onSelectCrew(null)}
+          // As in Graph Studio: the wheel keeps scrolling; pinch and the controls zoom.
+          zoomOnDoubleClick={false}
           onNodeClick={(_event, node) => {
+            if (node.id.startsWith("frame:")) return onEnterProject(node.id.slice("frame:".length));
             const overviewNode = nodeById.get(node.id);
             if (!overviewNode) return;
-            if (overviewNode.kind === "crew") onSelectCrew(node.id);
+            if (overviewNode.kind === "crew") onEnterCrew(overviewNode.projectId, overviewNode.name);
             else onOpenTask(overviewNode.projectId, overviewNode.key);
           }}
-          onNodeDoubleClick={(_event, node) => {
-            const overviewNode = nodeById.get(node.id);
-            if (overviewNode?.kind === "crew") onOpenCrew(overviewNode.projectId, overviewNode.name);
-          }}
         >
-          {panelWidth === 0 || panelWidth >= 480 ? <Controls showInteractive={false} position="bottom-left" /> : null}
+          <Controls showInteractive={false} position="bottom-left" />
           <MiniMap pannable zoomable position="bottom-right" style={{ background: "var(--card)" }} maskColor="color-mix(in oklab, var(--background) 70%, transparent)" />
-          <Fit focus={filtered.focus} layoutKey={`${layout.width}x${layout.height}`} />
+          <Fit focusProject={focusProject} layoutKey={`${layout.width}x${layout.height}`} />
         </ReactFlow>
       </ReactFlowProvider>
     </div>
