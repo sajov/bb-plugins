@@ -54,7 +54,8 @@ function LineEdge({ id, data }: EdgeProps<Edge<LineData>>) {
 
 const NODE_TYPES = { card: CardNode };
 const EDGE_TYPES = { line: LineEdge };
-const FIT = { padding: 0.04, maxZoom: 1 } as const;
+// Room around the cards so the bottom-left zoom controls never sit on one.
+const FIT = { padding: 0.15, maxZoom: 1 } as const;
 
 function Fit({ layoutKey }: { layoutKey: string }) {
   const flow = useReactFlow();
@@ -109,11 +110,10 @@ export function CrewBoardCanvas({
     selectable: false,
     data: { content: renderCard(box.id) },
   }));
-  // As tall as the drawing, like Graph Studio; on a phone the canvas grows instead of shrinking the cards.
-  const scale = panelWidth > 0 ? Math.min(1, panelWidth / board.width) : 1;
-  const height = Math.max(200, Math.min(900, board.height * scale + 2));
+  // BBP-81: fills the height its parent gives it, as Graph Studio's canvas
+  // does, and fits the cards into it — a fixed height left them hanging at the top.
   return (
-    <div ref={hostRef} aria-label="Crew board" className="relative overflow-hidden rounded-lg border border-border bg-background" style={{ height }}>
+    <div ref={hostRef} aria-label="Crew board" className="relative min-h-[320px] flex-1 overflow-hidden rounded-lg border border-border bg-background">
       <svg width="0" height="0" className="absolute" aria-hidden>
         <defs>
           {(["lead", "wait"] as const).map((kind) => (

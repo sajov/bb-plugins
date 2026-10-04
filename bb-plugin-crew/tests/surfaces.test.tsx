@@ -54,7 +54,7 @@ const backend = (overrides: Record<string, (input: unknown) => unknown> = {}) =>
   getActivity: () => ({ members: [view({ key: "orch-lead", address: "orch-lead@trio", lead: true }), view({})] }),
   listMessages: () => ({ messages: [] }),
   rowStatuses: () => ({ rows: [], needsYou: 0 }),
-  projectOverview: () => ({ crews: [], leadLinks: [], dependencies: [], threads: { limit: null, source: "none", running: 0, members: 0 } }),
+  projectOverview: () => ({ crews: [{ name: "trio", status: "running", summary: "", task: null, branch: null, behind: 0, merge: null, needsYou: 0, members: [] }], leadLinks: [], dependencies: [], threads: { limit: null, source: "none", running: 0, members: 0 } }),
   listChannel: () => ({ posts: [] }),
   listWork: () => ({ items: [] }),
   getCrewFile: () => ({ yaml: trioYaml(), version: 2 }),
@@ -63,8 +63,7 @@ const backend = (overrides: Record<string, (input: unknown) => unknown> = {}) =>
 });
 
 async function openCrew(slot: ReturnType<typeof renderSlot>, tab: string) {
-  const list = await slot.findByRole("list", { name: "Crews" });
-  fireEvent.click(within(list).getByRole("button", { name: "trio" }));
+  fireEvent.click(await slot.findByRole("button", { name: "trio" }));
   fireEvent.click(await slot.findByRole("button", { name: tab }));
 }
 

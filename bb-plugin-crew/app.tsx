@@ -647,7 +647,7 @@ export function ProjectBoard({
     [byName, onOpen, onMerge],
   );
   return (
-    <div>
+    <div className="flex min-h-0 flex-1 flex-col">
       <CrewBoardCanvas names={names} lines={lines} renderCard={renderCard} onOpen={onOpen} />
       {/* The same connections as text: for screen readers, and readable without zooming. */}
       {lines.length > 0 ? (
@@ -664,7 +664,20 @@ export function ProjectBoard({
   );
 }
 
-function ProjectOverview({ projectId, crews, onOpen }: { projectId: string; crews: CrewDto[]; onOpen: (name: string) => void }) {
+function ProjectOverview({
+  projectId,
+  crews,
+  title,
+  actions,
+  onOpen,
+}: {
+  projectId: string;
+  crews: CrewDto[];
+  /** The header's title: the project's name, or the switch between projects. */
+  title: ReactNode;
+  actions?: ReactNode;
+  onOpen: (name: string) => void;
+}) {
   const rpc = useRpc<typeof rpcContract>();
   const [overview, setOverview] = useState<OverviewDto | null>(null);
   const [messages, setMessages] = useState<MessageDto[]>([]);
@@ -701,14 +714,10 @@ function ProjectOverview({ projectId, crews, onOpen }: { projectId: string; crew
   const stoppedCount = crews.filter((entry) => entry.status === "stopped").length;
   const over = threads && threads.limit !== null && threads.members > threads.limit;
   return (
-    <div className="flex flex-col gap-4" aria-label="Project overview">
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-      <header className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <span className="text-sm font-semibold text-foreground">Project overview</span>
+    <div className="flex min-h-0 flex-1 flex-col gap-3" aria-label="Project overview">
+      {/* BBP-81: Graph Studio's header — title, status, actions on the right. */}
+      <header role="banner" aria-label="Overview header" className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border pb-2 text-xs text-muted-foreground">
+        <span className="min-w-0 truncate text-sm font-medium text-foreground">{title}</span>
         <span data-crew-count={crews.length}>
           {crews.length} crews
           {stoppedCount > 0 ? ` · ${stoppedCount} stopped` : ""}
@@ -719,15 +728,21 @@ function ProjectOverview({ projectId, crews, onOpen }: { projectId: string; crew
             {threads.limit === null ? "limit not readable" : `limit ${threads.limit}${threads.source === "plugin" ? " (plugin)" : ""}`}
           </span>
         ) : null}
+        {actions ? <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div> : null}
       </header>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
       {overview ? <ProjectBoard overview={overview} messages={messages} onOpen={onOpen} onMerge={onMerge} /> : <p className="text-sm text-muted-foreground">Loading…</p>}
-      <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+      <section aria-label={crossOnly ? "Lead communication" : "Project feed"} className="max-h-[40%] shrink-0 overflow-y-auto rounded-xl border border-border bg-card p-4 text-card-foreground">
         <header className="mb-2 flex flex-wrap items-center gap-3">
           {/* Between crews, through their leads; each crew's own talk lives in its crew view. */}
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{crossOnly ? "Lead communication" : "Project feed"}</h4>
           <span className="text-[11px] text-muted-foreground">{crossOnly ? "between crews · open a crew for its own talk" : "all messages of the project"}</span>
           <span className="flex-1" />
-          <select aria-label="Filter by crew" className="rounded-md border border-input bg-transparent px-2 py-1 text-xs" value={crewFilter} onChange={(e) => setCrewFilter(e.target.value)}>
+          <select aria-label="Filter by crew" className="rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground" value={crewFilter} onChange={(e) => setCrewFilter(e.target.value)}>
             <option value="">all crews</option>
             {crews.map((crew) => (
               <option key={crew.id} value={crew.name}>
@@ -735,7 +750,7 @@ function ProjectOverview({ projectId, crews, onOpen }: { projectId: string; crew
               </option>
             ))}
           </select>
-          <select aria-label="Filter by status" className="rounded-md border border-input bg-transparent px-2 py-1 text-xs" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select aria-label="Filter by status" className="rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">all states</option>
             {MESSAGE_STATUSES.map((entry) => (
               <option key={entry} value={entry}>
@@ -1298,26 +1313,6 @@ function AttachForm({ crew, members, onDone }: { crew: CrewDto; members: MemberD
   );
 }
 
-function CrewChips({ crews, onPick }: { crews: CrewDto[]; onPick: (id: string) => void }) {
-  return (
-    <ul className="flex flex-wrap items-center gap-2" aria-label="Crews">
-      {crews.map((entry) => (
-        <li key={entry.id}>
-          <button
-            type="button"
-            title={entry.status}
-            onClick={() => onPick(entry.id)}
-            className={cn("flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted/60", entry.status === "stopped" && "opacity-70")}
-          >
-            <StatusDot status={entry.status} />
-            {entry.name}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 /** Projects that have crews, in first-seen order, with the name the server reported (the id when it did not). */
 export function crewProjects(crews: readonly CrewDto[]): { id: string; name: string; count: number }[] {
   const projects = new Map<string, { id: string; name: string; count: number }>();
@@ -1438,7 +1433,7 @@ function CrewsPage() {
 
   return (
     <div className="h-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="mx-auto box-border w-full max-w-6xl px-4 pb-4 pt-3 md:px-5 md:pt-4">
+      <div className={cn("mx-auto box-border w-full max-w-6xl px-4 pb-4 pt-3 md:px-5 md:pt-4", view === "overview" && "flex h-full flex-col")}>
         {error ? (
           <p role="alert" className="mb-3 text-sm text-destructive">
             {error}
@@ -1451,18 +1446,18 @@ function CrewsPage() {
             No crews yet. Try <code>bb crew templates</code> and <code>bb crew apply trio</code>.
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
-            {view === "overview" ? (
-              // One project at a time, chosen explicitly: the chips list exactly
-              // the crews of the board below. Other projects are a switch away,
-              // not a second row of chips that reads as "the rest".
-              <div className="flex flex-wrap items-center gap-3">
-                {projects.length > 1 ? (
-                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Icon name="FolderOpen" className="size-3.5" />
+          <div className={cn("flex flex-col gap-4", view === "overview" && "min-h-0 flex-1")}>
+            {view === "overview" && crew ? (
+              <ProjectOverview
+                projectId={crew.projectId}
+                crews={projectCrews}
+                title={
+                  // One project at a time, chosen explicitly; the cards on the
+                  // board are its crews, so no second row of crew chips.
+                  projects.length > 1 ? (
                     <select
                       aria-label="Project"
-                      className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-sm font-medium text-foreground hover:bg-[#1a1a1c]"
+                      className="rounded-md border border-input bg-background px-1.5 py-1 text-sm font-medium text-foreground hover:bg-muted"
                       value={projectId ?? ""}
                       onChange={(event) => {
                         setPickedProject(event.target.value);
@@ -1476,25 +1471,16 @@ function CrewsPage() {
                         </option>
                       ))}
                     </select>
-                  </label>
-                ) : null}
-                <CrewChips
-                  crews={projectCrews}
-                  onPick={(id) => {
-                    setSelected(id);
-                    setView("crew");
-                  }}
-                />
-                <Button size="sm" variant="outline" className="ml-auto h-7" onClick={() => setDiagramOpen(true)}>
-                  <Icon name="Expand" className="size-3.5" />
-                  Diagram
-                </Button>
-              </div>
-            ) : null}
-            {view === "overview" && crew ? (
-              <ProjectOverview
-                projectId={crew.projectId}
-                crews={projectCrews}
+                  ) : (
+                    (projects.find((project) => project.id === projectId)?.name ?? projectId)
+                  )
+                }
+                actions={
+                  <Button size="sm" variant="outline" className="h-7" onClick={() => setDiagramOpen(true)}>
+                    <Icon name="Expand" className="size-3.5" />
+                    Diagram
+                  </Button>
+                }
                 onOpen={(name) => {
                   const match = crews.find((entry) => entry.projectId === crew.projectId && entry.name === name);
                   if (match) setSelected(match.id);
