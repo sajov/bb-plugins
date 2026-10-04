@@ -570,7 +570,7 @@ function ProjectPanel({ projectId, crews, overview }: { projectId: string; crews
         </p>
       ) : null}
       {threads ? (
-        <p className={cn("text-xs text-muted-foreground", over && "text-amber-500")} data-thread-limit={over ? "over" : "ok"}>
+        <p className={cn("text-xs text-muted-foreground", over && "text-destructive")} data-thread-limit={over ? "over" : "ok"}>
           Threads {threads.running ?? "?"} running · {threads.members} members in crews ·{" "}
           {threads.limit === null ? "limit not readable" : `limit ${threads.limit}${threads.source === "plugin" ? " (plugin)" : ""}`}
         </p>
@@ -1403,7 +1403,7 @@ function CrewsPage() {
                   type="button"
                   aria-current={current ? "page" : undefined}
                   onClick={() => setPath(step.path)}
-                  className={cn("rounded px-1.5 py-0.5 hover:bg-muted", current ? "font-medium text-foreground" : "text-muted-foreground")}
+                  className={cn("rounded px-1.5 py-0.5 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", current ? "font-medium text-foreground" : "text-muted-foreground")}
                 >
                   {step.label}
                 </button>

@@ -132,7 +132,7 @@ function FrameNodeView({ data }: NodeProps<Node<{ project: ProjectSummary; dim: 
       role="button"
       tabIndex={0}
       aria-label={`Project ${project.name}`}
-      className={cn("h-full w-full cursor-zoom-in rounded-xl border border-dashed border-border bg-muted/20 hover:border-primary/60", dim && "opacity-40")}
+      className={cn("h-full w-full cursor-zoom-in rounded-xl border border-border/60 bg-card/40 hover:border-dashed hover:border-primary/60 focus-visible:border-dashed focus-visible:border-primary/60 focus-visible:outline-none", dim && "opacity-40")}
     >
       <div className="flex items-center gap-3 px-3 py-2 text-xs">
         <span className="truncate text-sm font-medium text-foreground">{project.name}</span>
@@ -141,13 +141,13 @@ function FrameNodeView({ data }: NodeProps<Node<{ project: ProjectSummary; dim: 
         </span>
         {project.runningCount > 0 ? (
           <span data-cluster="running" className="flex items-center gap-1 text-muted-foreground">
-            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-primary" />
+            <span aria-hidden className="size-1.5 rounded-full bg-primary" />
             {project.runningCount} running
           </span>
         ) : null}
         {project.needsYouCount > 0 ? (
           <span data-cluster="needs-you" className="flex items-center gap-1 text-destructive">
-            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-destructive" />
+            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-destructive motion-reduce:animate-none" />
             {project.needsYouCount} waiting on you
           </span>
         ) : null}
