@@ -81,6 +81,23 @@ describe("merge requests (human merges by default)", () => {
     await expect(service.integration.approve(merge.id)).rejects.toThrow("is rejected");
   });
 
+  it("BBP-87: a branch already fully contained in base (merged outside this flow) auto-closes as merged and drops off Needs you", async () => {
+    const { service, alpha, git, needs, store } = await twoCrews();
+    const { merge } = await service.integration.request(alpha.crew, "core-lead@alpha");
+    expect(await needs(alpha, "core-lead")).toContain("merge-request");
+    // The human merged the branch directly (or it otherwise landed in main already): no commits left on top of base.
+    git.aheadCount = 0;
+    expect(await needs(alpha, "core-lead")).not.toContain("merge-request");
+    expect(store.getMerge(merge.id)).toMatchObject({ state: "merged" });
+  });
+
+  it("negative: a merge request with real unmerged commits stays open", async () => {
+    const { service, alpha, git, needs } = await twoCrews();
+    await service.integration.request(alpha.crew, "core-lead@alpha");
+    git.aheadCount = 2;
+    expect(await needs(alpha, "core-lead")).toContain("merge-request");
+  });
+
   it("negative: no worktree branch, or the crew working on main, is refused", async () => {
     const { service, alpha, port, store } = await twoCrews();
     const lead = alpha.members["core-lead"]!;
@@ -90,6 +107,27 @@ describe("merge requests (human merges by default)", () => {
     thread.environmentId = null;
     store.setMemberEnv(lead.id, { environmentId: null, path: null, branch: null });
     await expect(service.integration.request(alpha.crew, lead.address)).rejects.toThrow("branch is unknown");
+  });
+});
+
+describe("human questions (BBP-87)", () => {
+  it("a question tied to this crew's own task auto-closes once the task is done", async () => {
+    const { service, alpha, needs, tasks, store } = await twoCrews();
+    const lead = alpha.members["core-lead"]!;
+    await service.send({ projectId: PROJECT, from: { kind: "member", member: lead, crew: alpha.crew }, to: "human", body: "v1 or v2?" });
+    expect(await needs(alpha, "core-lead")).toContain("human-question");
+    expect(store.openHumanQuestion(lead.id)).not.toBeNull();
+    tasks.tasks.set("CRD-1", { id: "t1", projectId: "tp", status: "done", labelIds: [], comments: [] });
+    expect(await needs(alpha, "core-lead")).not.toContain("human-question");
+    expect(store.openHumanQuestion(lead.id)).toBeNull();
+  });
+
+  it("negative: a question stays open while the task is not done", async () => {
+    const { service, alpha, needs, tasks } = await twoCrews();
+    const lead = alpha.members["core-lead"]!;
+    await service.send({ projectId: PROJECT, from: { kind: "member", member: lead, crew: alpha.crew }, to: "human", body: "v1 or v2?" });
+    tasks.tasks.set("CRD-1", { id: "t1", projectId: "tp", status: "in_progress", labelIds: [], comments: [] });
+    expect(await needs(alpha, "core-lead")).toContain("human-question");
   });
 });
 

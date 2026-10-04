@@ -144,13 +144,18 @@ export function createCrewService(deps: ServiceDeps) {
     onChange: deps.onActivity,
     now: deps.now,
     graphsRpc: deps.graphsRpc,
-    extras: (crew, member) => {
-      const open = member.lead ? integration.awaitingHuman(crew.id)[0] : undefined;
+    extras: async (crew, member) => {
+      const open = member.lead ? (await integration.awaitingHuman(crew.id))[0] : undefined;
+      // BBP-87: a human question tied to this crew's own task is stale once that task is done.
+      const ownTask = models(crew).spec?.task;
+      const task = ownTask && deps.tasks ? await deps.tasks.getTask(ownTask).catch(() => null) : null;
+      const staleQuestion = task?.status === "done" && store.answerHumanQuestions(member.id).length > 0;
       return {
         mergeRequest: open
           ? `Merge request ${open.id} (${open.state}): ${open.branch} → ${open.base}${open.reason ? ` — ${open.reason}` : ""}. bb crew approve ${open.id} | bb crew reject ${open.id}`
           : null,
         escalated: queue.escalatedToHuman(member).length,
+        ...(staleQuestion ? { humanQuestion: null } : {}),
       };
     },
   });

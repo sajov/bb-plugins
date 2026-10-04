@@ -68,8 +68,11 @@ describe("activity axes", () => {
     expect(deriveActivity(input({ thread: thread({ archived: true }), interactions: [{ id: "i", kind: "approval", title: "?" }] })).needsYou).toEqual([]);
   });
 
-  it("a stopped loop needs you without changing the activity", () => {
-    expect(deriveActivity(input({ stoppedLoops: 1 }))).toMatchObject({ activity: "idle", needsYou: ["loop"], diagnoses: ["Stopped: loop"] });
+  it("a stopped loop needs you without changing the activity, but only with a reason and a suggested action (BBP-87)", () => {
+    expect(deriveActivity(input({ stoppedLoops: 1 }))).toMatchObject({ activity: "idle", needsYou: [], diagnoses: ["Stopped: loop"] });
+    const withDetail = deriveActivity(input({ stoppedLoops: 1, stoppedLoop: { reason: "step 6 reached maxSteps 6", action: "Ship it" } }));
+    expect(withDetail).toMatchObject({ activity: "idle", needsYou: ["loop"], diagnoses: ["Stopped: loop"] });
+    expect(withDetail.question).toBe("Stopped as a loop: step 6 reached maxSteps 6. Suggested: Ship it");
   });
 });
 
@@ -89,7 +92,10 @@ describe("diagnoses", () => {
 
 describe("row status icon", () => {
   it("error for Needs you, running while working, success for an unread result, nothing otherwise", () => {
-    expect(rowStatusFor(deriveActivity(input({ stoppedLoops: 1 })))).toMatchObject({ tone: "error", label: "Needs you: loop" });
+    expect(rowStatusFor(deriveActivity(input({ stoppedLoops: 1, stoppedLoop: { reason: "r", action: "a" } })))).toMatchObject({
+      tone: "error",
+      label: "Needs you: loop",
+    });
     expect(rowStatusFor(deriveActivity(input({ thread: thread({ status: "active" }) })))).toMatchObject({ tone: "running" });
     expect(rowStatusFor(deriveActivity(input({ thread: thread({ lastReadAt: 1 }) })))).toMatchObject({ tone: "success" });
     expect(rowStatusFor(deriveActivity(input()))).toBeNull();

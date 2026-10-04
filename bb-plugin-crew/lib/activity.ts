@@ -26,12 +26,17 @@ export type Diagnosis = "On hold" | "Unread result" | "Stopped: loop" | "Idle wi
 /** §3.9.4: leads are relieved earlier than members, since all cross-crew traffic runs through them. */
 export const CONTEXT_THRESHOLDS = { leadSuggest: 0.6, leadNeedsYou: 0.8, memberSuggest: 0.8 } as const;
 
+/** A stopped-loop message that actually tells the human something: why it stopped, and what it was about to do. */
+export type StoppedLoop = { reason: string; action: string };
+
 export type ActivityInput = {
   thread: ThreadInfo | null;
   interactions: readonly OpenInteraction[];
   humanQuestion: Pick<MessageRow, "subject" | "body"> | null;
   /** Stopped-loop messages this member sent that the human has not dealt with yet. */
   stoppedLoops: number;
+  /** The first qualifying one of those: has both a reason and a suggested action. null = none do, so `loop` is not Needs you. */
+  stoppedLoop?: StoppedLoop | null;
   /** Messages to this member waiting on hold. */
   held: number;
   lead?: boolean;
@@ -81,7 +86,7 @@ export function deriveActivity(input: ActivityInput): Derived {
     if (!needsYou.includes(reason)) needsYou.push(reason);
   }
   if (input.humanQuestion) needsYou.push("human-question");
-  if (input.stoppedLoops > 0) needsYou.push("loop");
+  if (input.stoppedLoop) needsYou.push("loop");
   if (live && thread.status === "error") needsYou.push("error");
   if (input.mergeRequest) needsYou.push("merge-request");
   if ((input.needs ?? []).some((need) => need.reason === "merge-conflict")) needsYou.push("merge-conflict");
@@ -116,7 +121,8 @@ export function deriveActivity(input: ActivityInput): Derived {
     : (interactions[0]?.title ??
       (input.graphQuestion ? `Graph ${input.graphQuestion.graphId}: ${input.graphQuestion.question}` : null) ??
       (input.mergeRequest ? input.mergeRequest : null) ??
-      (conflict ? `Rebase conflict: ${conflict.detail ?? "see the member thread"}` : null));
+      (conflict ? `Rebase conflict: ${conflict.detail ?? "see the member thread"}` : null) ??
+      (input.stoppedLoop ? `Stopped as a loop: ${input.stoppedLoop.reason}. Suggested: ${input.stoppedLoop.action}` : null));
   return {
     thread: axis,
     activity,
@@ -170,7 +176,7 @@ export function liveViews<V extends { memberRow: string; threadId: string | null
  * Keeps the derived view per member and says when it changed, so the server
  * publishes only real changes to the frontend.
  */
-export type ActivityExtras = (crew: CrewRow, member: MemberRow) => Partial<ActivityInput>;
+export type ActivityExtras = (crew: CrewRow, member: MemberRow) => Partial<ActivityInput> | Promise<Partial<ActivityInput>>;
 
 export function createActivityTracker(deps: {
   store: Store;
@@ -206,18 +212,23 @@ export function createActivityTracker(deps: {
     const thread = binding ? await port.get(binding.threadId).catch(() => null) : null;
     const interactions = thread && !thread.archived ? await port.openInteractions(thread.id).catch(() => []) : [];
     const humanQuestion = store.openHumanQuestion(member.id);
-    const stoppedLoops = store
+    const openLoops = store
       .listMessages({ crewId: crew.id, status: "stopped_loop", limit: 1000 })
-      .filter((message) => message.fromMember === member.id && message.answeredAt === null).length;
+      .filter((message) => message.fromMember === member.id && message.answeredAt === null);
+    const stoppedLoops = openLoops.length;
+    const qualifyingLoop = openLoops.find((message) => message.reason && message.body.trim() !== "");
+    const stoppedLoop = qualifyingLoop ? { reason: qualifyingLoop.reason!, action: qualifyingLoop.body } : null;
     const held = store.countByMember(member.id, "to", "on_hold");
     const context = thread && !thread.archived ? await port.contextUsage(thread.id).catch(() => null) : null;
     if (thread && !thread.archived) store.markBusy(member.id, WORKING.has(thread.status), deps.now?.() ?? Date.now());
     const graphRuns = store.listGraphRuns(member.id).map((row) => ({ runId: row.runId, graphId: row.graphId, status: row.status }));
+    const extras = (await deps.extras?.(crew, member)) ?? {};
     const derived = deriveActivity({
       thread,
       interactions,
       humanQuestion,
       stoppedLoops,
+      stoppedLoop,
       held,
       lead: member.lead,
       openWork: store.listWork({ owner: member.id, states: ["open", "claimed"] }).length,
@@ -226,7 +237,7 @@ export function createActivityTracker(deps: {
       context,
       graphRuns,
       graphQuestion: await graphQuestionFor(member, graphRuns),
-      ...deps.extras?.(crew, member),
+      ...extras,
     });
     return {
       ...derived,
