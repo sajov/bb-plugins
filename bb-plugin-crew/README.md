@@ -15,9 +15,9 @@ Graph Studio describes a flow that ends; a crew is a team that stays. Both
 combine: a Graph Studio `member` node runs a step on a crew member instead of
 a fresh thread.
 
-![Project overview: all crews of a project with branch, members and the cross-crew feed](../docs/screenshots/crew-overview.png)
+![All projects: every crew on one canvas, with its status](../docs/screenshots/crew-all-projects.png)
 
-![Topology of one crew: groups, members, links and the member card](../docs/screenshots/crew-details.png)
+![One crew: groups, members, links, the member card and the crew's communication](../docs/screenshots/crew-topology.png)
 
 Inspired by [OpenRig](https://github.com/mvschwarz/openrig) for
 [herdr](https://github.com/herdrdev/herdr).
@@ -78,8 +78,7 @@ member's address, key and role go into the run's input explicitly; the graph
 never sees the member's thread.
 
 Every run is linked back to the member and crew that started it (durably, so
-it survives a restart): the Topology tab shows it as a sub-row under the
-member with its live status, and **Needs you** gets an entry with reason
+it survives a restart): the member card lists it with its live status, and **Needs you** gets an entry with reason
 `graph-approval` and the waiting human node's question while a run sits on one
 — gone again once the run continues or ends. `bb crew stop` cancels a crew's
 open runs; `bb crew delete --threads delete` also deletes their worker
@@ -103,11 +102,26 @@ bb crew stop trio [--archive]
 bb crew delete trio [--threads archive|delete|keep]
 ```
 
-In the app, **Crews** in the sidebar opens a project overview of all crews.
-Each crew has the tabs Topology, Table & Feed and Edit crew file (YAML and
-form, BB's provider/model picker, a preview identical to `bb crew plan`, one
-Apply button). Member threads carry a header badge, and `::crew{crew="…"}`
-renders a live card in chat.
+In the app, **Crews** in the sidebar opens one zoomable canvas with four
+levels: all projects → one project → one crew → one member. A breadcrumb shows
+where you are, Esc goes up one level. The project filters and the **Crews**,
+**Tasks** and **Done** toggles sit on the top level; BB Tasks labelled
+`crew-<crew>` are drawn as edges to the crew working on them. Every card shows
+the crew's state (running, stopped, waits on you), and the header counts
+**Needs you** across all projects.
+
+Selecting a crew opens its side panel with the tabs Members, Table & Feed and
+Edit crew file (YAML and form, BB's provider/model picker, a preview identical
+to `bb crew plan`, one Apply button); **Edit** opens the same editor full
+screen. The member card has Open, Handover and Reset; Replay steps through the
+crew's messages. Member threads carry a header badge, and `::crew{crew="…"}`
+renders a live card in chat that opens the crew in the thread sidebar.
+
+**Needs you** only lists what needs a decision: an open question or approval,
+a merge request, a merge conflict, a stopped loop with its reason, or a graph
+run waiting on a human node. Merge requests whose branch is already in the
+base branch, questions about a task that is done, and loops without a reason
+drop out on their own.
 
 The full command and agent-tool reference is the skill:
 [skills/crew/SKILL.md](skills/crew/SKILL.md).

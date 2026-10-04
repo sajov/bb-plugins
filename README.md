@@ -39,9 +39,9 @@ bb plugin install git:https://github.com/sajov/bb-plugins.git \
 
 ## Crew
 
-![Crew project overview](docs/screenshots/crew-overview.png)
+![Crews canvas across all projects](docs/screenshots/crew-all-projects.png)
 
-![Crew topology with member card](docs/screenshots/crew-details.png)
+![Crew topology with member card](docs/screenshots/crew-topology.png)
 
 A persistent agent team: a lead and members with fixed addresses
 (`dev-owner@my-crew`), each with its own provider and model, reconciled
@@ -49,7 +49,9 @@ against BB threads with `bb crew apply`. Members message each other and share
 a work queue; several crews in one project coordinate through their leads, BB
 Tasks and `main`. A Graph Studio `member` node runs a graph step on a crew
 member instead of a fresh thread.
-Every message, also between crews, is visible in the project feed and with
+One zoomable canvas goes from all projects down to a single member, and
+**Needs you** lists only what waits for your decision. Every message, also
+between crews, is visible in the project feed and with
 `bb crew log --cross-crew`.
 
 ```sh
