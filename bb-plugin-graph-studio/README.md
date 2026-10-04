@@ -44,7 +44,8 @@ subscriptions — no separate API keys.
 A graph is JSON, not code:
 
 - **Nodes** — `agent` (spawns a thread), `dialog` (spawns a thread that may
-  ask back), `human` (pauses for you), `subgraph` (embeds another graph),
+  ask back), `member` (hands the step to a persistent [Crew](../bb-plugin-crew)
+  member), `human` (pauses for you), `subgraph` (embeds another graph),
   `note`. Each has a prompt with `{{input}}`, `{{node_id}}`,
   `{{node_id.field}}` and `{{item}}` placeholders, plus a `maxVisits` cycle
   guard.
@@ -68,7 +69,7 @@ sits next to a copy button in the library and the editor.
 
 ## Shipped templates
 
-31 of them, read-only; clone one under a new id to edit it. They come in two
+32 of them, read-only; clone one under a new id to edit it. They come in two
 groups, because they are two different things.
 
 ### Patterns — established flows
@@ -129,6 +130,9 @@ them first — see [Install](#install).
   *progress* rather than on failure.
 - **Project — concept and build** (`project-end-to-end`) — embeds
   `idea-to-concept` as a subgraph and builds its result.
+- **Owner–check loop** (`owner-check-loop`) — runs on a crew instead of fresh
+  threads: `dev-owner` builds, `dev-check` checks, a fail goes back, at most
+  three laps. Needs the Crew plugin; clone it and replace `my-crew`.
 
 In the development templates the test run is its own node with a declared
 `status` field, and `RED` routes back into the work. A worker that judges its
@@ -357,6 +361,24 @@ One deliberate limit: the child is resolved **live** at compile time, not
 frozen into the run. `runs.graph_json` holds only the parent. Change an
 embedded graph while a run is in flight and the run continues with the new
 version from its next step.
+
+### Combining with Crew
+
+Graph Studio describes a flow that ends; [Crew](../bb-plugin-crew) is a team
+that stays. They work in both directions:
+
+- **A graph step on a crew member.** A `member` node names `member@crew` and
+  delivers its prompt to that member's existing thread instead of spawning a
+  worker. The member keeps its context, worktree, provider and model from the
+  crew file, so a member node carries no model of its own. Before a run starts,
+  every member address is checked against Crew; a missing plugin, an unknown
+  member or a member without a thread stops the run with a reason rather than
+  silently falling back to a fresh thread. `owner-check-loop` is the ready-made
+  example.
+- **A crew member running a graph.** A member whose crew file lists
+  `graphs:` gets the tool `crew_graph_run`: it starts the graph, waits for the
+  result, and the run shows up on the member card. A run waiting on a `human`
+  node appears in Crew's **Needs you**.
 
 ### Model per node
 

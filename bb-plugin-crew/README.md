@@ -11,7 +11,7 @@ so as the file changes. Members message each other, share a channel and a work
 queue, and several crews in one project coordinate through their leads, BB
 Tasks and `main`. You see who works, who waits and who needs you.
 
-Graph Studio describes a flow that ends; a crew is a team that stays. Both
+[Graph Studio](../bb-plugin-graph-studio) describes a flow that ends; a crew is a team that stays. Both
 combine: a Graph Studio `member` node runs a step on a crew member instead of
 a fresh thread.
 

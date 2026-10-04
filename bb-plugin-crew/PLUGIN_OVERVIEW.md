@@ -21,7 +21,7 @@ is sitting on a human node.
 the new `skills:`) names which graphs it may run; `crew_graph_run(graph,
 input)` starts one and blocks until it finishes, carrying the member's
 address, key and role into the run's input. Every run is linked back to its
-member and shows as a live sub-row on the Topology tab; `bb crew stop`
+member and shows with its live status on the member card; `bb crew stop`
 cancels open runs and `bb crew delete --threads delete` also removes their
 worker threads.
 
@@ -35,12 +35,18 @@ limit, so two crews cannot ping-pong forever.
 
 ## See who works
 
-**Crews** in the sidebar opens a project overview: every crew with its branch,
-members and state, lines for lead-to-lead traffic, and a project feed that can
-show cross-crew messages only. Each crew has a topology view, a table with the
-feed, and an editor for the crew file with a preview identical to
-`bb crew plan` and one Apply button. `::crew{crew="…"}` renders a live card in
-chat.
+**Crews** in the sidebar opens one zoomable canvas with four levels: all
+projects → one project → one crew → one member. Every card shows its state —
+running, stopped, or waiting on you — and the header counts **Needs you**
+across all projects. BB Tasks labelled `crew-<crew>` are drawn as edges to the
+crew working on them, and lines between crews show lead-to-lead traffic. A
+crew's side panel holds its members, a table with the feed, and an editor for
+the crew file (YAML and form, with a preview identical to `bb crew plan` and
+one Apply button). `::crew{crew="…"}` renders a live card in chat.
+
+**Needs you** lists only what needs a decision: an open question or approval,
+a merge request, a merge conflict, a stopped loop with its reason, or a graph
+run waiting on a human node. Settled items drop out on their own.
 
 ## Merge requests inside the crew
 
