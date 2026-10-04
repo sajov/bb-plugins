@@ -3,6 +3,7 @@
 // how full its context is, what waits in its queue, what it works on now.
 import type { Node, NodeProps } from "@xyflow/react";
 import type { ActivityDto, MemberDto, WorkDto } from "../server";
+import { formatContextShare } from "../lib/format";
 import { activityLabel } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -57,7 +58,7 @@ export function AgentNodeView({ data }: NodeProps<Node<AgentNodeData>>) {
       </div>
       <div className="flex flex-col gap-1">
         <Row label="Model">{model ? `${model}${provider ? ` · ${provider}` : ""}` : "default"}</Row>
-        <Row label="Context">{view?.context != null ? `${view.context}%` : "—"}</Row>
+        <Row label="Context">{view?.context != null ? formatContextShare(view.context) : "—"}</Row>
         <Row label="Queue">
           {view ? `${view.openWork} open · ${view.held} held` : "—"}
         </Row>
