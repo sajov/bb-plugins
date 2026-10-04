@@ -13,7 +13,7 @@ import "@xyflow/react/dist/style.css";
 import type { ActivityDto, MemberDto, MessageDto } from "../server";
 import { shownFlows, type Flow } from "../lib/comms";
 import { crewLayers, MARGIN, pathBetween, placeLayers, slots, type Box } from "../lib/canvas-layout";
-import { activityLabel, activityTone, hasErrorReason, LINK_STYLE, topReasonLabel } from "../lib/topology";
+import { activityLabel, activityTone, hasErrorReason, LINK_STYLE, RUNNING, topReasonLabel } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/components/ui/icon";
@@ -51,7 +51,7 @@ export function visualOf(view: ActivityDto | null, thread: MemberDto["thread"]):
 const FILL: Record<Visual, string> = {
   idle: "var(--card)",
   off: "var(--card)",
-  running: "color-mix(in oklab, var(--primary) 14%, var(--card))",
+  running: `color-mix(in oklab, ${RUNNING} 14%, var(--card))`,
   decision: "color-mix(in oklab, var(--warning) 12%, var(--card))",
   waiting: "color-mix(in oklab, var(--destructive) 12%, var(--card))",
   failed: "color-mix(in oklab, var(--destructive) 12%, var(--card))",
@@ -59,7 +59,7 @@ const FILL: Record<Visual, string> = {
 const STROKE: Record<Visual, string> = {
   idle: "var(--border)",
   off: "var(--border)",
-  running: "var(--primary)",
+  running: RUNNING,
   decision: "var(--warning)",
   waiting: "var(--destructive)",
   failed: "var(--destructive)",
@@ -67,7 +67,7 @@ const STROKE: Record<Visual, string> = {
 const DOT: Record<Visual, string> = {
   idle: "color-mix(in oklab, var(--muted-foreground) 50%, transparent)",
   off: "color-mix(in oklab, var(--muted-foreground) 30%, transparent)",
-  running: "var(--primary)",
+  running: RUNNING,
   decision: "var(--warning)",
   waiting: "var(--destructive)",
   failed: "var(--destructive)",
@@ -105,7 +105,7 @@ export function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
         ) : null}
         <div className="relative flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.06em] text-muted-foreground">
           <span className="truncate">{member.lead ? "lead" : member.groupId || "member"}</span>
-          <span className="flex shrink-0 items-center gap-1 normal-case tracking-normal" style={needs ? { color: STROKE[visual] } : undefined}>
+          <span className="flex shrink-0 items-center gap-1 normal-case tracking-normal" style={needs ? { color: visual === "decision" ? "var(--warning-text)" : "var(--destructive-text)" } : undefined}>
             <span aria-hidden className={cn("size-1.5 rounded-full", visual === "running" && "animate-pulse")} style={{ background: DOT[visual] }} />
             {reason ?? (visual === "running" ? "working" : visual === "failed" ? "error" : null)}
           </span>
@@ -578,7 +578,7 @@ export function MemberCard({
           className={cn("mb-3 flex flex-col gap-2 rounded-lg border p-2.5", isError ? "border-destructive/30 bg-destructive/5" : "border-warning/30 bg-warning/5")}
           data-needs-you="true"
         >
-          <b className={cn("block", isError ? "text-destructive" : "text-warning")}>{isError ? "Error" : "Needs a decision"}</b>
+          <b className={cn("block", isError ? "text-destructive-text" : "text-warning-text")}>{isError ? "Error" : "Needs a decision"}</b>
           {/* One line of context per reason: a bare "loop" with an empty box asked for input nobody could give. */}
           <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="Reasons">
             {view!.needsYou.map((reason) => (

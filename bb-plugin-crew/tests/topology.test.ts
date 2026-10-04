@@ -39,7 +39,7 @@ describe("activityTone (BBP-95: red only for errors, amber for decisions)", () =
   });
 
   it("falls back to activity colour when there is no reason: blue working, grey idle/unknown", () => {
-    expect(activityTone("working", [])).toBe("var(--primary)");
+    expect(activityTone("working", [])).toBe("var(--timeline-accent)");
     expect(activityTone("idle", [])).toBe("var(--muted-foreground)");
     expect(activityTone("unknown", [])).toBe("var(--muted-foreground)");
     expect(activityTone("error", [])).toBe("var(--destructive)");

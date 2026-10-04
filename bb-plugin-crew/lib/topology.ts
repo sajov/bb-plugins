@@ -23,6 +23,9 @@ export function activityLabel(view: { activity: string; thread: string; needsYou
   return view.activity;
 }
 
+/** Running reads blue (BBP-95); the host's primary is neutral and already marks the selection. */
+export const RUNNING = "var(--timeline-accent)";
+
 export type ReasonSeverity = "error" | "decision";
 
 /** BBP-95: only a real failure is red — everything else that waits on a human decision is amber. */
@@ -96,7 +99,7 @@ export function activityTone(activity: string, reasons: readonly string[]): stri
   if (reasons.length > 0) return "var(--warning)";
   switch (activity) {
     case "working":
-      return "var(--primary)";
+      return RUNNING;
     case "error":
       return "var(--destructive)";
     case "idle":

@@ -60,7 +60,7 @@ export type LeadLeadEdge = { kind: "lead-lead"; id: string; from: string; to: st
 export type OverviewEdge = TaskCrewEdge | LeadLeadEdge;
 
 /** A project's cluster on the top zoom level: how many crews, how many run, how many wait on you. */
-export type ProjectSummary = OverviewProject & { crewCount: number; taskCount: number; runningCount: number; needsYouCount: number };
+export type ProjectSummary = OverviewProject & { crewCount: number; taskCount: number; runningCount: number; needsYouCount: number; errorCount: number };
 
 export type OverviewGraph = {
   projects: ReadonlyArray<ProjectSummary>;
@@ -95,7 +95,7 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
   for (const project of projects) {
     const overview = overviews.get(project.id);
     if (!overview) {
-      projectSummaries.push({ ...project, crewCount: 0, taskCount: 0, runningCount: 0, needsYouCount: 0 });
+      projectSummaries.push({ ...project, crewCount: 0, taskCount: 0, runningCount: 0, needsYouCount: 0, errorCount: 0 });
       continue;
     }
     const taskIds = new Map<string, TaskNode>();
@@ -165,6 +165,8 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
       taskCount: taskIds.size,
       runningCount: overview.crews.filter((crew) => crew.status === "running").length,
       needsYouCount: overview.crews.filter((crew) => crew.needsYou > 0).length,
+      // BBP-95: crews with a real failure, counted apart from those that only wait on a decision.
+      errorCount: overview.crews.filter((crew) => hasErrorReason(crew.members.flatMap((member) => member.needsYou ?? []))).length,
     });
   }
 

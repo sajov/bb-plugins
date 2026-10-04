@@ -28,6 +28,7 @@ import {
   type TaskNode,
 } from "../lib/overview-graph";
 import { layoutOverview, type NodeSize } from "../lib/overview-layout";
+import { RUNNING, topReasonLabel } from "../lib/topology";
 import type { ActivityDto, MemberDto, WorkDto } from "../server";
 import { AGENT_H, AGENT_W, AgentNodeView, currentWork } from "./crew-agent-node";
 import { buildCrewCanvas, MemberNode, PathEdge, TopologyMarkers, type MemberAction, type PathEdgeData } from "./crew-topology";
@@ -40,15 +41,15 @@ export const OVERVIEW_FLOW_THEME = BASE_FLOW_THEME;
 export { colorLightness, useHostColorMode };
 
 const STATUS_FILL: Record<string, string> = {
-  running: "color-mix(in oklab, var(--primary) 14%, var(--card))",
+  running: `color-mix(in oklab, ${RUNNING} 14%, var(--card))`,
   degraded: "color-mix(in oklab, var(--destructive) 12%, var(--card))",
-  starting: "color-mix(in oklab, var(--primary) 8%, var(--card))",
+  starting: `color-mix(in oklab, ${RUNNING} 8%, var(--card))`,
   stopped: "var(--card)",
 };
 const STATUS_STROKE: Record<string, string> = {
-  running: "var(--primary)",
+  running: RUNNING,
   degraded: "var(--destructive)",
-  starting: "var(--primary)",
+  starting: RUNNING,
   stopped: "var(--border)",
 };
 
@@ -75,9 +76,9 @@ function CrewNodeView({ data }: NodeProps<Node<{ crew: CrewNode; selected: boole
       >
         <div className="flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.06em] text-muted-foreground">
           <span>CREW</span>
-          <span className="flex items-center gap-1" style={needs ? { color: stroke } : undefined}>
+          <span className="flex items-center gap-1" style={needs ? { color: crew.needsYouSeverity === "error" ? "var(--destructive-text)" : "var(--warning-text)" } : undefined}>
             <span aria-hidden className={cn("size-1.5 rounded-full", pulsing && "animate-pulse")} style={{ background: stroke }} />
-            {crew.needsYouSeverity === "error" ? "error" : crew.needsYouSeverity === "decision" ? "waits on you" : crew.status}
+            {needs ? (topReasonLabel(crew.members.flatMap((member) => member.needsYou ?? [])) ?? "waits on you") : crew.status}
           </span>
         </div>
         <span className="truncate text-sm font-medium text-foreground">{crew.name}</span>
@@ -145,14 +146,20 @@ function FrameNodeView({ data }: NodeProps<Node<{ project: ProjectSummary; dim: 
         </span>
         {project.runningCount > 0 ? (
           <span data-cluster="running" className="flex items-center gap-1 text-muted-foreground">
-            <span aria-hidden className="size-1.5 rounded-full bg-primary" />
+            <span aria-hidden className="size-1.5 rounded-full" style={{ background: RUNNING }} />
             {project.runningCount} running
           </span>
         ) : null}
-        {project.needsYouCount > 0 ? (
-          <span data-cluster="needs-you" className="flex items-center gap-1 text-destructive">
+        {project.errorCount > 0 ? (
+          <span data-cluster="error" className="flex items-center gap-1 text-destructive-text">
             <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-destructive motion-reduce:animate-none" />
-            {project.needsYouCount} waiting on you
+            {project.errorCount} {project.errorCount === 1 ? "error" : "errors"}
+          </span>
+        ) : null}
+        {project.needsYouCount - project.errorCount > 0 ? (
+          <span data-cluster="needs-you" className="flex items-center gap-1 text-warning-text">
+            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-warning motion-reduce:animate-none" />
+            {project.needsYouCount - project.errorCount} waiting on you
           </span>
         ) : null}
       </div>

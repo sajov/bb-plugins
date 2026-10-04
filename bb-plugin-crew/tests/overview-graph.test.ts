@@ -71,6 +71,16 @@ describe("buildOverviewGraph", () => {
     ]);
   });
 
+  it("counts crews with an error apart from those that only wait on a decision (BBP-95)", () => {
+    const crews = [
+      { name: "mr", status: "running", summary: "", task: null, branch: null, needsYou: 1, members: [{ key: "lead", lead: true, activity: "idle", needsYou: ["merge-request"] }], labelTasks: [] },
+      { name: "broken", status: "running", summary: "", task: null, branch: null, needsYou: 1, members: [{ key: "lead", lead: true, activity: "idle", needsYou: ["merge-conflict"] }], labelTasks: [] },
+    ];
+    const graph = buildOverviewGraph([{ id: "p1", name: "P" }], new Map([["p1", source({ crews, leadLinks: [], dependencies: [] })]]));
+    expect(graph.projects[0]).toMatchObject({ needsYouCount: 2, errorCount: 1 });
+    expect(graph.nodes.find((node) => node.id === crewNodeId("p1", "mr"))).toMatchObject({ needsYouSeverity: "decision" });
+  });
+
   it("keeps project, crew and task ordering stable", () => {
     const graph = buildOverviewGraph([{ id: "p1", name: "P" }], new Map([["p1", source()]]));
     expect(graph.nodes.map((node) => node.id)).toEqual([
