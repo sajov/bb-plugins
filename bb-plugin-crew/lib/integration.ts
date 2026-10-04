@@ -33,6 +33,8 @@ export type RebaseOutcome = { ok: true; head: string } | { ok: false; conflict: 
 export interface GitBackend {
   /** Commits on `base` that `branch` does not have; null when git cannot say. */
   behind(cwd: string, branch: string, base: string): Promise<number | null>;
+  /** Commits on `branch` that `base` does not have; null when git cannot say. */
+  ahead(cwd: string, branch: string, base: string): Promise<number | null>;
   /** Uncommitted changes to tracked files in this worktree. */
   dirty(cwd: string): Promise<boolean>;
   /** Run the checks command in the worktree; green = exit code 0. */
@@ -70,6 +72,11 @@ export function createLocalGit(run: Run = runProcess): GitBackend {
   return {
     async behind(cwd, branch, base) {
       const result = await run(["rev-list", "--count", `${branch}..${base}`], cwd);
+      const count = Number.parseInt(result.stdout.trim(), 10);
+      return result.code === 0 && Number.isFinite(count) ? count : null;
+    },
+    async ahead(cwd, branch, base) {
+      const result = await run(["rev-list", "--count", `${base}..${branch}`], cwd);
       const count = Number.parseInt(result.stdout.trim(), 10);
       return result.code === 0 && Number.isFinite(count) ? count : null;
     },
@@ -302,6 +309,21 @@ export function createIntegration(deps: IntegrationDeps) {
     return [...byReason].map(([reason, keys]) => `${reason} (members: ${keys.join(", ")})`);
   }
 
+  /** `branch` has no commits that `base` lacks: the merge already happened outside this flow. False on any doubt. */
+  async function isContained(merge: MergeRequestRow): Promise<boolean> {
+    const crew = store.getCrew(merge.crewId);
+    const crewLead = crew ? lead(crew) : null;
+    const env = crewLead ? await locate(crewLead) : null;
+    if (!env?.path) return false;
+    try {
+      const git = await gitFor(env);
+      const ahead = await git.ahead(env.path, merge.branch, merge.base);
+      return ahead === 0;
+    } catch {
+      return false;
+    }
+  }
+
   return {
     locate,
     remoteHosts,
@@ -405,8 +427,20 @@ export function createIntegration(deps: IntegrationDeps) {
       return git.behind(env.path, env.branch, baseOf(crew)).catch(() => null);
     },
 
-    awaitingHuman(crewId: string): MergeRequestRow[] {
-      return store.listMerges({ crewId, states: AWAITING_HUMAN });
+    /**
+     * Merge requests waiting on the human, with the ones whose branch is
+     * already fully contained in `base` (merged outside this flow, e.g. the
+     * human merged the branch directly) closed as `merged` first (BBP-87):
+     * they no longer belong on Needs you.
+     */
+    async awaitingHuman(crewId: string): Promise<MergeRequestRow[]> {
+      const rows = store.listMerges({ crewId, states: AWAITING_HUMAN });
+      const kept: MergeRequestRow[] = [];
+      for (const merge of rows) {
+        if (await isContained(merge)) store.updateMerge(merge.id, { state: "merged", reason: null, mergedBy: "git (already in base)" });
+        else kept.push(merge);
+      }
+      return kept;
     },
   };
 }
@@ -423,6 +457,8 @@ export function createFakeGit() {
   const fake = {
     calls,
     behindCount: 0 as number | null,
+    // Non-zero by default: a freshly requested merge has unmerged commits.
+    aheadCount: 1 as number | null,
     isDirty: false,
     checksResult: { ok: true, output: "ok" } as { ok: boolean; output: string },
     mergeResult: { ok: true, commit: "abc1234def" } as MergeOutcome,
@@ -431,6 +467,10 @@ export function createFakeGit() {
     async behind(...args: [string, string, string]) {
       calls.push({ method: "behind", args });
       return fake.behindCount;
+    },
+    async ahead(...args: [string, string, string]) {
+      calls.push({ method: "ahead", args });
+      return fake.aheadCount;
     },
     async dirty(...args: [string]) {
       calls.push({ method: "dirty", args });

@@ -16,7 +16,7 @@ import { createJournal } from "./journal";
 import { createCrewModels } from "./policy";
 import { createQueue } from "./queue";
 import { serializeCrew, validateCrew, type Catalog, type GraphsCatalog, type Problem, type SkillsCatalog, type Validation } from "./spec";
-import type { CrewRow, MessageFilter, MessageRow, Store } from "./store";
+import type { CrewRow, MemberRow, MessageFilter, MessageRow, Store } from "./store";
 import {
   apply,
   describeMembers,
@@ -138,19 +138,35 @@ export function createCrewService(deps: ServiceDeps) {
       await dependencies.poll({ onlyMerged: true });
     },
   });
+  /**
+   * BBP-87: a member's open human question is stale once the crew's own task
+   * is done — there is no per-question task link (`MessageRow` has none), so
+   * this closes every open question of the member, an approximation that
+   * holds as long as a crew works one task at a time (`spec.task`).
+   */
+  async function closeHumanQuestionIfTaskDone(crew: CrewRow, member: MemberRow): Promise<boolean> {
+    const ownTask = models(crew).spec?.task;
+    if (!ownTask || !deps.tasks) return false;
+    const task = await deps.tasks.getTask(ownTask).catch(() => null);
+    if (task?.status !== "done") return false;
+    return store.answerHumanQuestions(member.id).length > 0;
+  }
+
   const activity = createActivityTracker({
     store,
     port: deps.port,
     onChange: deps.onActivity,
     now: deps.now,
     graphsRpc: deps.graphsRpc,
-    extras: (crew, member) => {
-      const open = member.lead ? integration.awaitingHuman(crew.id)[0] : undefined;
+    extras: async (crew, member) => {
+      const open = member.lead ? (await integration.awaitingHuman(crew.id))[0] : undefined;
+      const staleQuestion = await closeHumanQuestionIfTaskDone(crew, member);
       return {
         mergeRequest: open
           ? `Merge request ${open.id} (${open.state}): ${open.branch} → ${open.base}${open.reason ? ` — ${open.reason}` : ""}. bb crew approve ${open.id} | bb crew reject ${open.id}`
           : null,
         escalated: queue.escalatedToHuman(member).length,
+        ...(staleQuestion ? { humanQuestion: null } : {}),
       };
     },
   });
