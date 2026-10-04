@@ -112,6 +112,16 @@ export const rpcContract = defineRpcContract({
     input: z.object({ threadId, parentThreadId: threadId.nullable() }),
     output: z.object({ ok: z.boolean() }),
   },
+  /**
+   * "New sub-thread": a thread one level under another, created right away
+   * rather than through the new-thread screen — there is no provider choice
+   * to make, so nothing is gained by stopping for one. `spawn` already takes
+   * `parentThreadId` directly; no separate `thread_set_parent` call needed.
+   */
+  thread_create_child: {
+    input: z.object({ projectId, parentThreadId: threadId }),
+    output: z.object({ threadId: z.string() }),
+  },
 
   /**
    * Bulk deletion — the one destructive thing aside owns.
@@ -279,6 +289,21 @@ export default async function plugin(bb: BbPluginApi) {
       await bb.sdk.threads.update({ threadId: thread, parentThreadId });
       bb.realtime.publish(CHANGED, { kind: "thread" });
       return { ok: true };
+    },
+
+    thread_create_child: async ({ projectId: id, parentThreadId: parent }) => {
+      const child = await bb.sdk.threads.spawn({
+        projectId: id,
+        parentThreadId: parent,
+        // No provider picker: the project's own default, the same thing an
+        // untouched new-thread screen would resolve to.
+        environment: { type: "project-default" },
+        prompt: "",
+        origin: "plugin",
+        visibility: "visible",
+      });
+      bb.realtime.publish(CHANGED, { kind: "thread" });
+      return { threadId: child.id };
     },
 
     threads_delete: async ({ threadIds }) => {

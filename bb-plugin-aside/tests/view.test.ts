@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   accordionCollapse,
   allCollapsed,
+  allSectionsFolded,
   DEFAULT_VIEW,
   isDefaultView,
   MAX_IDS,
   resetViewSettings,
   parseViewState,
   sectionKey,
+  toggleAllSections,
   toggleId,
 } from "@/lib/view";
 
@@ -139,6 +141,31 @@ describe("focus, pinned group and reset", () => {
     expect(isDefaultView({ ...DEFAULT_VIEW, threadSort: "state" })).toBe(false);
     expect(isDefaultView({ ...DEFAULT_VIEW, tagFilter: ["api"] })).toBe(false);
     expect(isDefaultView({ ...DEFAULT_VIEW, projectFilter: ["p1"] })).toBe(false);
+  });
+});
+
+describe("collapsing a project's sections", () => {
+  it("has no opinion for a project without sections", () => {
+    expect(allSectionsFolded([], ["p1:s1"])).toBeNull();
+    expect(toggleAllSections(["p1:s1"], [])).toEqual(["p1:s1"]);
+  });
+
+  it("reports folded only once every section is", () => {
+    expect(allSectionsFolded(["p1:s1", "p1:s2"], ["p1:s1"])).toBe(false);
+    expect(allSectionsFolded(["p1:s1", "p1:s2"], ["p1:s1", "p1:s2"])).toBe(true);
+  });
+
+  it("folds every section of the project when any is still open", () => {
+    expect(toggleAllSections(["p1:s1"], ["p1:s1", "p1:s2"])).toEqual(["p1:s1", "p1:s2"]);
+  });
+
+  it("unfolds all of them once every one is already folded", () => {
+    expect(toggleAllSections(["p1:s1", "p1:s2"], ["p1:s1", "p1:s2"])).toEqual([]);
+  });
+
+  it("leaves other projects' collapsed sections untouched", () => {
+    expect(toggleAllSections(["p2:s1"], ["p1:s1"])).toEqual(["p2:s1", "p1:s1"]);
+    expect(toggleAllSections(["p2:s1", "p1:s1"], ["p1:s1"])).toEqual(["p2:s1"]);
   });
 });
 

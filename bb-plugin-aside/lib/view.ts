@@ -166,6 +166,35 @@ export function sectionKey(projectId: string, sectionId: string): string {
 }
 
 /**
+ * Are every one of a project's sections folded? `null` when it has none,
+ * which tells the caller to hide the menu entry rather than offer to fold
+ * nothing.
+ */
+export function allSectionsFolded(
+  sectionKeys: readonly string[],
+  collapsedSections: readonly string[],
+): boolean | null {
+  return sectionKeys.length === 0
+    ? null
+    : sectionKeys.every((key) => collapsedSections.includes(key));
+}
+
+/**
+ * The project menu's "Collapse all sections" / "Expand all sections" —
+ * one toggle, direction decided by the current state. Folds every section if
+ * any is open, unfolds all of them once they are all already folded.
+ */
+export function toggleAllSections(
+  collapsedSections: readonly string[],
+  sectionKeys: readonly string[],
+): string[] {
+  if (sectionKeys.length === 0) return [...collapsedSections];
+  return allSectionsFolded(sectionKeys, collapsedSections)
+    ? collapsedSections.filter((key) => !sectionKeys.includes(key))
+    : [...new Set([...collapsedSections, ...sectionKeys])];
+}
+
+/**
  * Are all projects collapsed? This drives the fold toggle's direction, so it
  * decides what the button offers to do next.
  *

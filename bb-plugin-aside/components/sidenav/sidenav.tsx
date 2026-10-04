@@ -40,11 +40,13 @@ import {
 import {
   accordionCollapse,
   allCollapsed,
+  allSectionsFolded,
   DEFAULT_VIEW,
   isDefaultView,
   parseViewState,
   resetViewSettings,
   sectionKey,
+  toggleAllSections,
   MAX_IDS,
   toggleId,
   type ViewState,
@@ -414,6 +416,19 @@ export function Sidenav({
             );
         }
       },
+      onNewSubThread: (threadId) => {
+        const parent = threads.find((thread) => thread.id === threadId);
+        if (parent === undefined) return;
+        void rpc
+          .call("thread_create_child", { projectId: parent.projectId, parentThreadId: threadId })
+          .then((result) => {
+            setOpenChildren((current) => ({ ...current, [threadId]: true }));
+            openThread(result.threadId, false);
+          })
+          .catch((cause: unknown) =>
+            report(cause instanceof Error ? cause.message : String(cause)),
+          );
+      },
       onNest: (threadId, parentThreadId) => {
         const dragged = threads.find((thread) => thread.id === threadId);
         const target = threads.find((thread) => thread.id === parentThreadId);
@@ -739,23 +754,18 @@ export function Sidenav({
                     ),
                   })
                 }
-                sectionsCollapsed={(() => {
-                  const keys = block.blocks
+                sectionsCollapsed={allSectionsFolded(
+                  block.blocks
                     .filter((entry) => entry.section !== null)
-                    .map((entry) => sectionKey(block.project.id, entry.section!.id));
-                  return keys.length === 0
-                    ? null
-                    : keys.every((key) => view.collapsedSections.includes(key));
-                })()}
+                    .map((entry) => sectionKey(block.project.id, entry.section!.id)),
+                  view.collapsedSections,
+                )}
                 onToggleSections={() => {
                   const keys = block.blocks
                     .filter((entry) => entry.section !== null)
                     .map((entry) => sectionKey(block.project.id, entry.section!.id));
-                  const allFolded = keys.every((key) => view.collapsedSections.includes(key));
                   patchView({
-                    collapsedSections: allFolded
-                      ? view.collapsedSections.filter((key) => !keys.includes(key))
-                      : [...new Set([...view.collapsedSections, ...keys])],
+                    collapsedSections: toggleAllSections(view.collapsedSections, keys),
                   });
                 }}
                 onStartRename={() => setRenaming({ kind: "project", id: block.project.id })}
