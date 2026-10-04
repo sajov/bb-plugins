@@ -168,7 +168,7 @@ export function MessageCard({
         {message.priority === "urgent" ? (
           <>
             <dt className="text-muted-foreground">Priority</dt>
-            <dd className="m-0 text-[#ef6b6b]">urgent</dd>
+            <dd className="m-0 text-destructive">urgent</dd>
           </>
         ) : null}
       </dl>

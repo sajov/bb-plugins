@@ -21,17 +21,17 @@ export function activityLabel(view: { activity: string; thread: string; needsYou
   return view.activity;
 }
 
-/** Node colour by activity; Needs you wins over everything else. */
+/** Node colour by activity, from the BB theme; Needs you wins over everything else. */
 export function activityTone(activity: string, needsYou: boolean): string {
-  if (needsYou) return "#ef6b6b";
+  if (needsYou) return "var(--destructive)";
   switch (activity) {
     case "working":
-      return "#d9a441";
+      return "var(--primary)";
     case "idle":
-      return "#8b8b90";
+      return "var(--muted-foreground)";
     case "error":
-      return "#ef6b6b";
+      return "var(--destructive)";
     default:
-      return "#3a3a3e";
+      return "var(--border)";
   }
 }

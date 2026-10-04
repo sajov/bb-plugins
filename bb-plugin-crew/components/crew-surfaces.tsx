@@ -72,23 +72,23 @@ export function MemberBadge({ threadId, isCompactViewport }: Pick<PluginThreadHe
         )}
       </Button>
       {open ? (
-        <div role="menu" aria-label="Member actions" className="absolute right-0 top-8 z-50 flex w-52 flex-col rounded-lg border border-[#1f1f22] bg-[#0b0b0c] p-1 text-xs shadow-lg">
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => run("Reset", () => rpc.call("reset", { ...ref, mode: "clear" }))}>
+        <div role="menu" aria-label="Member actions" className="absolute right-0 top-8 z-50 flex w-52 flex-col rounded-lg border border-border bg-popover text-popover-foreground p-1 text-xs shadow-lg">
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => run("Reset", () => rpc.call("reset", { ...ref, mode: "clear" }))}>
             Reset (clear context)
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => run("Reset", () => rpc.call("reset", { ...ref, mode: "new" }))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => run("Reset", () => rpc.call("reset", { ...ref, mode: "new" }))}>
             Reset (new thread)
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => run("Handover", () => rpc.call("handover", ref))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => run("Handover", () => rpc.call("handover", ref))}>
             Handover
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left text-[#ef6b6b] hover:bg-[#1a1a1c]" onClick={() => run("Detach", () => rpc.call("detach", ref))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left text-destructive hover:bg-muted" onClick={() => run("Detach", () => rpc.call("detach", ref))}>
             Detach from crew
           </button>
         </div>
       ) : null}
       {note ? (
-        <div role="status" className="absolute right-0 top-8 z-40 w-60 rounded-md border border-[#1f1f22] bg-[#0b0b0c] p-2 text-[11px]" onClick={() => setNote(null)}>
+        <div role="status" className="absolute right-0 top-8 z-40 w-60 rounded-md border border-border bg-popover text-popover-foreground p-2 text-[11px]" onClick={() => setNote(null)}>
           {note}
         </div>
       ) : null}
@@ -118,14 +118,14 @@ export function CrewDirectiveCard({ attributes, message }: Pick<PluginMessageDir
   if (crew === null) return <p className="text-xs text-muted-foreground">There is no crew “{name}” in this project.</p>;
   const needs = views.filter((view) => view.needsYou.length > 0).length;
   return (
-    <div data-crew-directive={crew.name} className="my-2 flex flex-col gap-2 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3 text-xs">
+    <div data-crew-directive={crew.name} className="my-2 flex flex-col gap-2 rounded-xl border border-border bg-card text-card-foreground p-3 text-xs">
       <div className="flex items-center gap-2">
         <Icon name={CREW_ICON} className="size-4" />
         <span className="text-sm font-semibold">{crew.name}</span>
         <span className="text-muted-foreground">
           {crew.status} · {views.length} members · file v{crew.fileVersion}
         </span>
-        {needs > 0 ? <span className="ml-auto rounded-full border border-[#3a1f22] bg-[#1c1011] px-2 text-[#ef6b6b]">{needs} Needs you</span> : null}
+        {needs > 0 ? <span className="ml-auto rounded-full border border-destructive/40 bg-destructive/10 px-2 text-destructive">{needs} Needs you</span> : null}
       </div>
       <ul className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Members">
         {views.map((view) => (
@@ -162,8 +162,8 @@ export function ConfirmInteraction({ interaction, submit, cancel }: PluginPendin
   const detail = typeof payload.detail === "string" ? payload.detail : "";
   const danger = payload.kind === "full-permissions" || payload.kind === "remove-member";
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3 text-sm" aria-label="Crew confirmation">
-      <strong className={danger ? "text-[#ef6b6b]" : undefined}>{title}</strong>
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card text-card-foreground p-3 text-sm" aria-label="Crew confirmation">
+      <strong className={danger ? "text-destructive" : undefined}>{title}</strong>
       {detail ? <p className="m-0 text-xs text-muted-foreground">{detail}</p> : null}
       <div className="flex gap-2">
         <Button size="sm" variant={danger ? "destructive" : "default"} onClick={() => void submit({ confirmed: true })}>

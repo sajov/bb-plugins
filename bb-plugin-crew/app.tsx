@@ -25,19 +25,20 @@
 // still apply them at once on realtime changes. Rows fetched before the
 // setter exists are kept and applied when it arrives.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { definePluginApp, experimental_ProviderModelPicker as ProviderModelPicker, useBbContext, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, experimental_ProviderModelPicker as ProviderModelPicker, useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginComposerThreadRowStatus } from "@get-bb/plugin-sdk/app";
-import type { ActivityDto, ChannelDto, CrewDto, MemberDto, MergeDto, MessageDto, OverviewDto, rpcContract, WorkDto } from "./server";
+import type { ActivityDto, ChannelDto, CrewDto, MemberDto, MessageDto, OverviewDto, rpcContract, WorkDto } from "./server";
 import { CrewFileEditor } from "./components/crew-file-editor";
 import { CREW_ICON, CrewTeam } from "./components/crew-icon";
 import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, CrewPanelHeader, MemberBadge } from "./components/crew-surfaces";
 import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
-import { CrewOverviewFullscreen } from "./components/crew-overview-fullscreen";
+import { OverviewCanvas } from "./components/crew-overview-canvas";
+import { OverviewToolbar } from "./components/crew-overview-toolbar";
+import { DEFAULT_OVERVIEW_FILTERS, type OverviewFilters } from "./lib/overview-graph";
 import { CrewEditFullscreen } from "./components/crew-edit-fullscreen";
-import type { OverviewSource } from "./lib/overview-graph";
+import { breadcrumb, zoomLevel, zoomOut, type ZoomPath } from "./lib/zoom-path";
 import { CommsStrip, MessageCard } from "./components/crew-comms";
-import { CrewBoardCanvas, type BoardLine } from "./components/crew-board";
-import { flowOf, messageFlows, RECENT_MS, recentFlowIds, timeline } from "./lib/comms";
+import { flowOf, messageFlows, recentFlowIds, timeline } from "./lib/comms";
 import { activityLabel } from "./lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -451,13 +452,13 @@ function TableAndFeed({ crew, members }: { crew: CrewDto; members: MemberDto[] }
           {error}
         </p>
       ) : null}
-      <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+      <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
         <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Members</h4>
         <MembersTable members={members} activity={activity} onReply={(to) => setReply({ to, replyTo: null })} />
       </section>
       <WorkSection crew={crew} />
       <ChannelSection crew={crew} />
-      <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+      <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
         <header className="mb-2 flex items-center gap-3">
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Feed</h4>
           <span className="flex-1" />
@@ -520,175 +521,21 @@ function TableAndFeed({ crew, members }: { crew: CrewDto; members: MemberDto[] }
 
 
 // ---------------------------------------------------------------------------
-// Project overview (§3.9 "Oberfläche", §4.6)
+// Project level of the Crews canvas (§3.9 "Oberfläche", §4.6, BBP-83)
 
-type OverviewCard = OverviewDto["crews"][number];
-
-/** The crew part of an address (`key@crew`), or null for human and system. */
-function crewOfAddress(address: string): string | null {
-  const at = address.lastIndexOf("@");
-  return at > 0 ? address.slice(at + 1) : null;
-}
-
-/** Members named on an overview card; the rest are counted. */
-const MEMBERS_ON_CARD = 3;
-
-export function CrewCard({
-  card,
-  onOpen,
-  onMerge,
-}: {
-  card: OverviewCard;
-  onOpen?: (name: string) => void;
-  onMerge?: (id: string, action: "approve" | "reject") => void;
-}) {
-  const waiting = card.merge && (card.merge.state === "open" || card.merge.state === "returned");
-  const needs = card.needsYou > 0;
-  return (
-    // Graph Studio's card: a kind line with the status on the right, the name, then the facts.
-    <div
-      data-crew-card={card.name}
-      className={cn("flex h-full flex-col gap-1 overflow-hidden rounded-[10px] px-3 py-2 text-xs shadow-sm transition-colors", card.status === "stopped" && "opacity-70")}
-      style={{
-        background: needs ? "color-mix(in oklab, var(--destructive) 10%, var(--card))" : "var(--card)",
-        border: `1.5px solid ${needs ? "var(--destructive)" : card.status === "running" ? "color-mix(in oklab, var(--primary) 55%, var(--border))" : "var(--border)"}`,
-      }}
-    >
-      <div className="flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.06em] text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <StatusDot status={card.status} />
-          crew · {card.status}
-          {card.status === "stopped" ? <span data-card-status="stopped" className="sr-only">stopped</span> : null}
-        </span>
-        {needs ? <span className="normal-case tracking-normal text-[10px] text-[var(--destructive)]">{card.needsYou} Needs you</span> : null}
-      </div>
-      <button type="button" className="nodrag nopan truncate text-left text-sm font-medium text-foreground" onClick={(event) => (event.stopPropagation(), onOpen?.(card.name))}>
-        {card.name}
-      </button>
-      <div className="truncate text-[10px] text-muted-foreground">
-        {card.task ? <span className="mr-1 rounded-[4px] bg-muted px-1 font-mono text-foreground">{card.task}</span> : "no task · "}
-        <span className="font-mono">⎇ {card.branch ?? "–"}</span>
-        {card.behind !== null ? ` · ${card.behind} behind main` : ""}
-        {card.merge ? ` · MR ${card.merge.state}` : ""}
-      </div>
-      {/* One line, never more: wrapping pushed the name and branch out of the fixed-height card. */}
-      <div className="flex gap-x-2 overflow-hidden whitespace-nowrap text-[10px] text-muted-foreground">
-        {card.members.slice(0, MEMBERS_ON_CARD).map((member) => (
-          <span key={member.key} className="flex items-center gap-1" title={member.needsYou.length ? `Needs you: ${member.needsYou.join(", ")}` : member.activity}>
-            <Dot tone={member.needsYou.length ? "bg-red-400" : (ACTIVITY_TONE[member.activity] ?? "bg-muted-foreground")} />
-            {member.key}
-          </span>
-        ))}
-        {card.members.length > MEMBERS_ON_CARD ? <span data-more-members>+{card.members.length - MEMBERS_ON_CARD}</span> : null}
-      </div>
-      {waiting && card.merge && onMerge ? (
-        <div className="mt-auto flex items-center gap-1.5">
-          <span className="truncate text-amber-400" title={card.merge.reason ?? ""}>
-            {card.merge.id}
-            {card.merge.reason ? ` · ${card.merge.reason}` : ""}
-          </span>
-          <span className="flex-1" />
-          <Button size="sm" variant="outline" className="nodrag nopan h-6 px-2" onClick={(event) => (event.stopPropagation(), onMerge(card.merge!.id, "approve"))}>
-            Merge
-          </Button>
-          <Button size="sm" variant="ghost" className="nodrag nopan h-6 px-2" onClick={(event) => (event.stopPropagation(), onMerge(card.merge!.id, "reject"))}>
-            Reject
-          </Button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** Board lines: lead talk (live while a cross-crew message between the two is recent) and waitsFor. */
-export function boardLines(overview: OverviewDto, messages: readonly MessageDto[], now: number): BoardLine[] {
-  const talking = new Set(
-    messages
-      .filter((message) => message.crossCrew && now - message.createdAt <= RECENT_MS)
-      .map((message) => [crewOfAddress(message.fromAddress), crewOfAddress(message.toAddress)].sort().join("|")),
-  );
-  return [
-    ...overview.leadLinks.map((link) => ({
-      kind: "lead" as const,
-      from: link.from,
-      to: link.to,
-      label: `lead ↔ lead · ${link.count}`,
-      live: talking.has([link.from, link.to].sort().join("|")),
-    })),
-    ...overview.dependencies
-      .filter((dep) => dep.source !== null)
-      .map((dep) => ({ kind: "wait" as const, from: dep.crew, to: dep.source!, label: `waits for ${dep.task} · until ${dep.until} · ${dep.state}`, live: false })),
-  ];
-}
-
-export function ProjectBoard({
-  overview,
-  messages = [],
-  onOpen,
-  onMerge,
-}: {
-  overview: OverviewDto;
-  messages?: readonly MessageDto[];
-  onOpen?: (name: string) => void;
-  onMerge?: (id: string, action: "approve" | "reject") => void;
-}) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 15_000);
-    return () => clearInterval(timer);
-  }, []);
-  const lines = useMemo(() => boardLines(overview, messages, now), [overview, messages, now]);
-  const byName = useMemo(() => new Map(overview.crews.map((card) => [card.name, card])), [overview]);
-  const names = useMemo(() => overview.crews.map((card) => card.name), [overview]);
-  const renderCard = useCallback(
-    (name: string) => {
-      const card = byName.get(name);
-      return card ? <CrewCard card={card} onOpen={onOpen} onMerge={onMerge} /> : null;
-    },
-    [byName, onOpen, onMerge],
-  );
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <CrewBoardCanvas names={names} lines={lines} renderCard={renderCard} onOpen={onOpen} />
-      {/* The same connections as text: for screen readers, and readable without zooming. */}
-      {lines.length > 0 ? (
-        <ul className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground" aria-label="Connections">
-          {lines.map((line, i) => (
-            <li key={i} data-line={line.kind} data-live={line.live ? "true" : undefined} className="flex items-center gap-1.5">
-              <Icon name={line.kind === "lead" ? "ArrowLeftRight" : "Hourglass"} className={cn("size-3", line.kind === "lead" ? "text-sky-400" : "text-amber-400")} />
-              {line.from} → {line.to}: {line.label}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
-}
-
-function ProjectOverview({
-  projectId,
-  crews,
-  title,
-  actions,
-  onOpen,
-}: {
-  projectId: string;
-  crews: CrewDto[];
-  /** The header's title: the project's name, or the switch between projects. */
-  title: ReactNode;
-  actions?: ReactNode;
-  onOpen: (name: string) => void;
-}) {
+/**
+ * Under the canvas on level 1: the merges waiting for a decision and the
+ * leads' talk between the project's crews. Each crew's own talk lives in its
+ * crew view.
+ */
+function ProjectPanel({ projectId, crews, overview }: { projectId: string; crews: CrewDto[]; overview: OverviewDto | null }) {
   const rpc = useRpc<typeof rpcContract>();
-  const [overview, setOverview] = useState<OverviewDto | null>(null);
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [crewFilter, setCrewFilter] = useState("");
   const [status, setStatus] = useState("");
   const [crossOnly, setCrossOnly] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const refetch = useCallback(() => {
-    const fail = (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause));
-    rpc.call("projectOverview", { projectId }).then(setOverview, fail);
     rpc
       .call("listMessages", {
         projectId,
@@ -697,11 +544,13 @@ function ProjectOverview({
         ...(crewFilter ? { crew: crewFilter } : {}),
         ...(status ? { status: status as MessageDto["status"] } : {}),
       })
-      .then((r) => setMessages(r.messages), fail);
+      .then(
+        (r) => setMessages(r.messages),
+        (cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)),
+      );
   }, [rpc, projectId, crewFilter, status, crossOnly]);
   useEffect(refetch, [refetch]);
   useRealtime(ACTIVITY_CHANNEL, refetch);
-  useRealtime(CREWS_CHANNEL, refetch);
   const onMerge = async (id: string, action: "approve" | "reject") => {
     try {
       const result = await rpc.call("mergeAction", { id, action, note: "" });
@@ -709,37 +558,46 @@ function ProjectOverview({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-    refetch();
   };
+  const waiting = (overview?.crews ?? []).filter((card) => card.merge && (card.merge.state === "open" || card.merge.state === "returned"));
   const threads = overview?.threads;
-  const stoppedCount = crews.filter((entry) => entry.status === "stopped").length;
   const over = threads && threads.limit !== null && threads.members > threads.limit;
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3" aria-label="Project overview">
-      {/* BBP-81: Graph Studio's header — title, status, actions on the right. */}
-      <header role="banner" aria-label="Overview header" className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border pb-2 text-xs text-muted-foreground">
-        <span className="min-w-0 truncate text-sm font-medium text-foreground">{title}</span>
-        <span data-crew-count={crews.length}>
-          {crews.length} crews
-          {stoppedCount > 0 ? ` · ${stoppedCount} stopped` : ""}
-        </span>
-        {threads ? (
-          <span className={cn(over && "text-amber-400")} data-thread-limit={over ? "over" : "ok"}>
-            Threads {threads.running ?? "?"} running · {threads.members} members in crews ·{" "}
-            {threads.limit === null ? "limit not readable" : `limit ${threads.limit}${threads.source === "plugin" ? " (plugin)" : ""}`}
-          </span>
-        ) : null}
-        {actions ? <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div> : null}
-      </header>
+    <div className="flex max-h-[40%] shrink-0 flex-col gap-3 overflow-y-auto">
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
-      {overview ? <ProjectBoard overview={overview} messages={messages} onOpen={onOpen} onMerge={onMerge} /> : <p className="text-sm text-muted-foreground">Loading…</p>}
-      <section aria-label={crossOnly ? "Lead communication" : "Project feed"} className="max-h-[40%] shrink-0 overflow-y-auto rounded-xl border border-border bg-card p-4 text-card-foreground">
+      {threads ? (
+        <p className={cn("text-xs text-muted-foreground", over && "text-destructive")} data-thread-limit={over ? "over" : "ok"}>
+          Threads {threads.running ?? "?"} running · {threads.members} members in crews ·{" "}
+          {threads.limit === null ? "limit not readable" : `limit ${threads.limit}${threads.source === "plugin" ? " (plugin)" : ""}`}
+        </p>
+      ) : null}
+      {waiting.length > 0 ? (
+        <section aria-label="Waiting merges" className="rounded-xl border border-border bg-card p-3 text-card-foreground">
+          <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Waiting merges</h4>
+          <ul className="flex flex-col gap-1.5 text-xs">
+            {waiting.map((card) => (
+              <li key={card.merge!.id} className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{card.name}</span>
+                <span className="font-mono text-muted-foreground">⎇ {card.merge!.branch}</span>
+                <span className="text-muted-foreground">MR {card.merge!.state}</span>
+                <span className="flex-1" />
+                <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => void onMerge(card.merge!.id, "approve")}>
+                  Merge
+                </Button>
+                <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => void onMerge(card.merge!.id, "reject")}>
+                  Reject
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <section aria-label={crossOnly ? "Lead communication" : "Project feed"} className="rounded-xl border border-border bg-card p-4 text-card-foreground">
         <header className="mb-2 flex flex-wrap items-center gap-3">
-          {/* Between crews, through their leads; each crew's own talk lives in its crew view. */}
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{crossOnly ? "Lead communication" : "Project feed"}</h4>
           <span className="text-[11px] text-muted-foreground">{crossOnly ? "between crews · open a crew for its own talk" : "all messages of the project"}</span>
           <span className="flex-1" />
@@ -795,7 +653,7 @@ export function ChannelSection({ crew }: { crew: CrewDto }) {
   useEffect(refetch, [refetch]);
   useRealtime(ACTIVITY_CHANNEL, refetch);
   return (
-    <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+    <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Channel</h4>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
       {posts.length === 0 ? (
@@ -847,7 +705,7 @@ export function WorkSection({ crew }: { crew: CrewDto }) {
   useEffect(refetch, [refetch]);
   useRealtime(ACTIVITY_CHANNEL, refetch);
   return (
-    <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+    <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Open work</h4>
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No open work items.</p>
@@ -871,7 +729,7 @@ export function WorkSection({ crew }: { crew: CrewDto }) {
 
 type Tab = "topology" | "table" | "file";
 const TABS: { id: Tab; label: string }[] = [
-  { id: "topology", label: "Topology" },
+  { id: "topology", label: "Members" },
   { id: "table", label: "Table & Feed" },
   { id: "file", label: "Edit crew file" },
 ];
@@ -897,16 +755,26 @@ export function TopologyTab({
   members,
   links,
   onChanged,
+  selected: selectedFromPath,
+  onSelect,
+  canvas = true,
 }: {
   crew: CrewDto;
   members: MemberDto[];
   links: { from: string; to: string; kind: string }[];
   onChanged: () => void;
+  /** BBP-83: the agent level of the Crews canvas owns the selection when given. */
+  selected?: string | null;
+  onSelect?: (member: string) => void;
+  /** BBP-83: false where the Crews canvas already draws the members. */
+  canvas?: boolean;
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const [activity, setActivity] = useState<ActivityDto[]>([]);
   const [messages, setMessages] = useState<MessageDto[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [ownSelected, setOwnSelected] = useState<string | null>(null);
+  const selected = onSelect ? (selectedFromPath ?? null) : ownSelected;
+  const setSelected = onSelect ?? setOwnSelected;
   const [messageId, setMessageId] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -969,6 +837,7 @@ export function TopologyTab({
           under the canvas, as in Graph Studio. Measured on the panel, not the viewport: the sidebar is narrow on a wide screen. */}
       <div className="@container">
       <div className="flex flex-col gap-4 @3xl:flex-row @3xl:items-start">
+        {canvas ? (
         <TopologyCanvas
           members={members}
           links={links}
@@ -983,6 +852,7 @@ export function TopologyTab({
           recent={recent}
           activeFlow={activeFlow}
         />
+        ) : null}
         {message ? (
           <MessageCard message={message} crewName={crew.name} onClose={() => setMessageId(null)} onOpenSender={openMember} />
         ) : current ? (
@@ -1009,7 +879,7 @@ export function TopologyTab({
       </div>
       <TopologyLegend kinds={[...new Set(links.map((link) => link.kind))]} messages={flows.length > 0} />
       <CommsStrip messages={strip} crewName={crew.name} selectedId={messageId} onSelect={setMessageId} />
-      <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4" aria-label="Crew communication">
+      <section className="rounded-xl border border-border bg-card text-card-foreground p-4" aria-label="Crew communication">
         <header className="mb-2 flex items-center gap-3">
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Communication</h4>
           <span className="text-[11px] text-muted-foreground">{messages.length} messages inside {crew.name}</span>
@@ -1170,12 +1040,12 @@ function DeleteCrewForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string
   const [busy, setBusy] = useState(false);
   const stopped = crew.status === "stopped";
   return (
-    <section aria-label="Delete crew" className="mb-3 rounded-xl border border-[#5a1f1f] bg-[#0b0b0c] p-3">
-      <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-[#ef6b6b]">Delete crew {crew.name} — removes all of its data</h4>
+    <section aria-label="Delete crew" className="mb-3 rounded-xl border border-destructive/40 bg-card text-card-foreground p-3">
+      <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-destructive">Delete crew {crew.name} — removes all of its data</h4>
       {stopped ? (
         <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
           Member threads
-          <select aria-label="Member threads" className="w-56 rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-xs text-foreground" value={threads} onChange={(e) => setThreads(e.target.value as typeof threads)}>
+          <select aria-label="Member threads" className="w-56 rounded-md border border-border bg-transparent px-1.5 py-1 text-xs text-foreground" value={threads} onChange={(e) => setThreads(e.target.value as typeof threads)}>
             <option value="archive">archive (default)</option>
             <option value="delete">delete, sub-threads included</option>
             <option value="keep">keep, detached from the crew</option>
@@ -1188,12 +1058,12 @@ function DeleteCrewForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string
       )}
       {blockers.length > 0 ? (
         <>
-          <ul aria-label="Delete blockers" className="mt-2 list-disc pl-4 text-xs text-[#ef6b6b]">
+          <ul aria-label="Delete blockers" className="mt-2 list-disc pl-4 text-xs text-destructive">
             {blockers.map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>
-          <label className="mt-1 flex items-center gap-1.5 text-xs text-[#ef6b6b]">
+          <label className="mt-1 flex items-center gap-1.5 text-xs text-destructive">
             <input type="checkbox" aria-label="Delete anyway" checked={force} onChange={(e) => setForce(e.target.checked)} /> Delete anyway
           </label>
         </>
@@ -1238,11 +1108,11 @@ function AddMemberForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string 
   const input = (key: keyof typeof values, label: string) => (
     <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
       {label}
-      <input aria-label={label} className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-xs text-foreground" value={values[key]} onChange={set(key)} />
+      <input aria-label={label} className="rounded-md border border-border bg-transparent px-1.5 py-1 text-xs text-foreground" value={values[key]} onChange={set(key)} />
     </label>
   );
   return (
-    <section aria-label="Add member" className="mb-3 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3">
+    <section aria-label="Add member" className="mb-3 rounded-xl border border-border bg-card text-card-foreground p-3">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Add member — changes the crew file, then applies</h4>
       <div className="grid grid-cols-3 gap-2">
         {input("group", "Group")}
@@ -1250,7 +1120,7 @@ function AddMemberForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string 
         {input("role", "Role")}
         <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
           Permissions
-          <select aria-label="Permissions" className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-xs text-foreground" value={values.permissions} onChange={set("permissions")}>
+          <select aria-label="Permissions" className="rounded-md border border-border bg-transparent px-1.5 py-1 text-xs text-foreground" value={values.permissions} onChange={set("permissions")}>
             <option value="">(inherited)</option>
             {["ask", "accept-edits", "auto", "full"].map((p) => (
               <option key={p} value={p}>
@@ -1273,7 +1143,7 @@ function AddMemberForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string 
         />
       </div>
       {values.permissions === "full" ? (
-        <label className="mt-2 flex items-center gap-1.5 text-xs text-[#ef6b6b]">
+        <label className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
           <input type="checkbox" aria-label="Confirm full permissions" checked={confirmFull} onChange={(e) => setConfirmFull(e.target.checked)} /> I confirm permissions: full
         </label>
       ) : null}
@@ -1327,7 +1197,7 @@ function AttachForm({ crew, members, onDone }: { crew: CrewDto; members: MemberD
     rpc.call("attachCandidates", { projectId: crew.projectId }).then((r) => setThreads(r.threads), () => setThreads([]));
   }, [rpc, crew.projectId]);
   return (
-    <section aria-label="Attach thread" className="mb-3 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3 text-xs">
+    <section aria-label="Attach thread" className="mb-3 rounded-xl border border-border bg-card text-card-foreground p-3 text-xs">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Attach an existing thread — no new thread, kickoff brief as a message</h4>
       {threads === null ? (
         <p className="text-muted-foreground">Loading unassigned threads…</p>
@@ -1347,7 +1217,7 @@ function AttachForm({ crew, members, onDone }: { crew: CrewDto; members: MemberD
       )}
       <div className="flex items-center gap-2">
         as
-        <select aria-label="Attach as member" className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1" value={member} onChange={(e) => setMember(e.target.value)}>
+        <select aria-label="Attach as member" className="rounded-md border border-border bg-transparent px-1.5 py-1" value={member} onChange={(e) => setMember(e.target.value)}>
           {members.map((m) => (
             <option key={m.key} value={m.key}>
               {m.address}
@@ -1390,54 +1260,38 @@ export function crewProjects(crews: readonly CrewDto[]): { id: string; name: str
   return [...projects.values()];
 }
 
-/**
- * The project the panel shows: the one picked, else the project BB is in when
- * it has crews, else the first with crews. Anchoring to BB's project — not to
- * whichever crew was selected last — is what keeps the crew you work with
- * from landing under "other projects".
- */
-export function shownProject(crews: readonly CrewDto[], picked: string | null, current: string | null): string | null {
-  const has = (id: string | null) => id !== null && crews.some((entry) => entry.projectId === id);
-  if (has(picked)) return picked;
-  if (has(current)) return current;
-  return crews[0]?.projectId ?? null;
-}
-
 function CrewsPage() {
   const rpc = useRpcBridge();
   const navigate = useBbNavigate();
   const [crews, setCrews] = useState<CrewDto[] | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
-  /** The project overview is the entry; a crew opens from its card or the list. */
-  const [view, setView] = useState<"overview" | "crew">("overview");
+  /** BBP-83: where on the zoom canvas you are — all projects, a project, a crew, an agent. */
+  const [path, setPath] = useState<ZoomPath>({});
+  const level = zoomLevel(path);
   const [tab, setTab] = useState<Tab>("topology");
   const [members, setMembers] = useState<MemberDto[]>([]);
   const [links, setLinks] = useState<{ from: string; to: string; kind: string }[]>([]);
   const [yaml, setYaml] = useState<string | null>(null);
   const [needsByCrew, setNeedsByCrew] = useState(0);
+  const [activity, setActivity] = useState<ActivityDto[]>([]);
+  const [work, setWork] = useState<WorkDto[]>([]);
+  const [filters, setFilters] = useState<OverviewFilters>(DEFAULT_OVERVIEW_FILTERS);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [form, setForm] = useState<"add" | "attach" | "delete" | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pickedProject, setPickedProject] = useState<string | null>(null);
-  const { projectId: bbProject } = useBbContext();
-  const projectId = shownProject(crews ?? [], pickedProject, bbProject);
-  const projectCrews = useMemo(() => (crews ?? []).filter((entry) => entry.projectId === projectId), [crews, projectId]);
   const projects = useMemo(() => crewProjects(crews ?? []), [crews]);
-  const crew = projectCrews.find((entry) => entry.id === selected) ?? projectCrews[0] ?? null;
-  const { byProject } = useNeedsYou();
+  const projectName = (id: string) => projects.find((project) => project.id === id)?.name ?? id;
+  const crew = level >= 2 ? ((crews ?? []).find((entry) => entry.projectId === path.projectId && entry.name === path.crew) ?? null) : null;
 
-  // BBP-71: the fullscreen diagram — every project's board, fetched the same
-  // way ProjectOverview fetches one, kept live by the same poll ProjectBoard
-  // already relies on for merges and behind-main (no push channel for either).
-  const [diagramOpen, setDiagramOpen] = useState(false);
   // BBP-80: the fullscreen editor holds the crew file text it was opened with.
   const [editYaml, setEditYaml] = useState<string | null>(null);
   const readCrewFile = async () => (crew ? ((await rpc.call("getCrewFile", { projectId: crew.projectId, name: crew.name })).yaml ?? "") : "");
-  const [overviews, setOverviews] = useState<Map<string, OverviewSource>>(new Map());
+
+  // Every project's board for the canvas, kept live by a poll: merges and
+  // behind-main have no push channel.
+  const [overviews, setOverviews] = useState<Map<string, OverviewDto>>(new Map());
   useEffect(() => {
-    if (!diagramOpen) return;
     let cancelled = false;
     const load = () => {
       void Promise.all(projects.map((project) => rpc.call("projectOverview", { projectId: project.id }).then((result) => [project.id, result] as const))).then((entries) => {
@@ -1450,7 +1304,19 @@ function CrewsPage() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [diagramOpen, rpc, projects]);
+  }, [rpc, projects]);
+
+  // Esc climbs one level; not while typing, and not under the crew editor, which closes on its own Esc.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || editYaml !== null) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select"))) return;
+      setPath(zoomOut);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editYaml]);
 
   const refetch = useCallback(() => {
     rpc.call("listCrews", { projectId: null }).then(
@@ -1474,9 +1340,13 @@ function CrewsPage() {
       (cause: unknown) => setError(String(cause)),
     );
     rpc.call("getActivity", { projectId: crew.projectId, name: crew.name }).then(
-      (result) => setNeedsByCrew(result.members.filter((view) => view.needsYou.length > 0).length),
+      (result) => {
+        setActivity(result.members);
+        setNeedsByCrew(result.members.filter((view) => view.needsYou.length > 0).length);
+      },
       () => undefined,
     );
+    rpc.call("listWork", { projectId: crew.projectId, name: crew.name }).then((result) => setWork(result.items), () => undefined);
   }, [rpc, crew?.id, crew?.updatedAt]);
   useEffect(loadCrew, [loadCrew]);
   useRealtime(ACTIVITY_CHANNEL, loadCrew);
@@ -1500,9 +1370,49 @@ function CrewsPage() {
     }
   };
 
+  // The agent card's actions, as the member card in the Members tab runs them.
+  const memberAction = async (of: CrewDto, member: string, action: MemberAction) => {
+    const ref = { projectId: of.projectId, name: of.name, member };
+    try {
+      const result =
+        action === "open"
+          ? await rpc.call("openMembers", { projectId: of.projectId, name: of.name, members: [member], leadOnly: false })
+          : action === "handover"
+            ? await rpc.call("handover", ref)
+            : action === "detach"
+              ? await rpc.call("detach", ref)
+              : await rpc.call("reset", { ...ref, mode: action === "reset-new" ? "new" : "clear" });
+      setNote(result.error ?? (action === "open" ? null : `${action} done for ${member}`));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+    loadCrew();
+  };
+  const crumbs = breadcrumb(path, projectName);
   return (
-    <div className="h-full min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      <div className={cn("mx-auto box-border w-full max-w-6xl px-4 pb-4 pt-3 md:px-5 md:pt-4", view === "overview" && "flex h-full flex-col")}>
+    <div className="h-full min-h-0 flex-1 overflow-hidden">
+      <div className="box-border flex h-full w-full flex-col px-4 pb-4 pt-3 md:px-5 md:pt-4">
+        <div className="mb-3 flex shrink-0 flex-wrap items-center gap-3">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm">
+          {crumbs.map((step, index) => {
+            const current = index === crumbs.length - 1;
+            return (
+              <span key={index} className="flex items-center gap-1">
+                {index > 0 ? <Icon name="ChevronRight" className="size-3.5 text-muted-foreground" /> : null}
+                <button
+                  type="button"
+                  aria-current={current ? "page" : undefined}
+                  onClick={() => setPath(step.path)}
+                  className={cn("rounded px-1.5 py-0.5 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", current ? "font-medium text-foreground" : "text-muted-foreground")}
+                >
+                  {step.label}
+                </button>
+              </span>
+            );
+          })}
+        </nav>
+        {level === 0 && crews && crews.length > 0 ? <OverviewToolbar projects={projects} filters={filters} onChange={setFilters} /> : null}
+        </div>
         {error ? (
           <p role="alert" className="mb-3 text-sm text-destructive">
             {error}
@@ -1515,68 +1425,49 @@ function CrewsPage() {
             No crews yet. Try <code>bb crew templates</code> and <code>bb crew apply trio</code>.
           </div>
         ) : (
-          <div className={cn("flex flex-col gap-4", view === "overview" && "min-h-0 flex-1")}>
-            {view === "overview" && crew ? (
-              <ProjectOverview
-                projectId={crew.projectId}
-                crews={projectCrews}
-                title={
-                  // One project at a time, chosen explicitly; the cards on the
-                  // board are its crews, so no second row of crew chips.
-                  projects.length > 1 ? (
-                    <select
-                      aria-label="Project"
-                      className="rounded-md border border-input bg-background px-1.5 py-1 text-sm font-medium text-foreground hover:bg-muted"
-                      value={projectId ?? ""}
-                      onChange={(event) => {
-                        setPickedProject(event.target.value);
-                        setSelected(null);
-                      }}
-                    >
-                      {projects.map((project) => (
-                        <option key={project.id} value={project.id}>
-                          {project.name} ({project.count}){byProject[project.id] ? ` · ${byProject[project.id]} need you` : ""}
-                          {project.id === bbProject ? " · current" : ""}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    (projects.find((project) => project.id === projectId)?.name ?? projectId)
-                  )
-                }
-                actions={
-                  <Button size="sm" variant="outline" className="h-7" onClick={() => setDiagramOpen(true)}>
-                    <Icon name="Expand" className="size-3.5" />
-                    Diagram
-                  </Button>
-                }
-                onOpen={(name) => {
-                  const match = crews.find((entry) => entry.projectId === crew.projectId && entry.name === name);
-                  if (match) setSelected(match.id);
-                  setView("crew");
-                }}
-              />
-            ) : null}
-            {view === "crew" && crew ? (
+          <div className="flex min-h-0 flex-1 gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
+                <div className="min-h-[320px] flex-1">
+                  <OverviewCanvas
+                    projects={projects}
+                    overviews={overviews}
+                    focusProject={path.projectId ?? null}
+                    onEnterProject={(projectId) => setPath({ projectId })}
+                    onEnterCrew={(projectId, name) => setPath({ projectId, crew: name })}
+                    onOpenTask={(_projectId, taskKey) => navigate.openUrl(`/tasks/${encodeURIComponent(taskKey)}`)}
+                    filters={level === 0 ? filters : DEFAULT_OVERVIEW_FILTERS}
+                    expanded={
+                      crew
+                        ? {
+                            projectId: crew.projectId,
+                            name: crew.name,
+                            members,
+                            links,
+                            activity,
+                            work,
+                            member: path.member ?? null,
+                            onEnterMember: (member) => setPath({ projectId: crew.projectId, crew: crew.name, member }),
+                            onAction: (member, action) => void memberAction(crew, member, action),
+                          }
+                        : null
+                    }
+                  />
+                </div>
+                {level === 1 && path.projectId ? (
+                  <ProjectPanel
+                    projectId={path.projectId}
+                    crews={crews.filter((entry) => entry.projectId === path.projectId)}
+                    overview={overviews.get(path.projectId) ?? null}
+                  />
+                ) : null}
+            </div>
+            {level >= 2 && !crew ? <p className="text-sm text-muted-foreground">This crew is gone.</p> : null}
+            {level >= 2 && crew ? (
+              // The crew's detail card next to the canvas, like Graph Studio's editor sidebar.
+              <aside aria-label="Crew details" className="w-[28rem] max-w-[45%] shrink-0 overflow-y-auto border-l border-border/60 pl-4">
               <section>
                 <header className="mb-2 flex flex-wrap items-center gap-3">
-                  <Button size="sm" variant="ghost" className="h-7 px-2" aria-label="Back to the project overview" onClick={() => setView("overview")}>
-                    <Icon name="ChevronLeft" className="size-4" />
-                  </Button>
-                  <select
-                    aria-label="Crew"
-                    className="rounded-md border-0 bg-transparent py-1 text-base font-semibold hover:bg-[#1a1a1c]"
-                    value={crew.id}
-                    onChange={(event) => setSelected(event.target.value)}
-                  >
-                    {/* The project's crews only; the project is switched on the overview. */}
-                    {projectCrews.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.name}
-                        {entry.status === "stopped" ? " (stopped)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="text-base font-semibold">{crew.name}</span>
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <StatusDot status={crew.status} /> {crew.status} · {members.length} members · file v{crew.fileVersion}
                   </span>
@@ -1603,14 +1494,14 @@ function CrewsPage() {
                       ⋯
                     </Button>
                     {menu ? (
-                      <div role="menu" aria-label="Crew actions" className="absolute right-0 top-9 z-50 flex w-48 flex-col rounded-lg border border-[#1f1f22] bg-[#0b0b0c] p-1 text-sm shadow-lg">
-                        <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => act(() => rpc.call("stop", { projectId: crew.projectId, name: crew.name, archive: false }), () => `${crew.name} stopped`)}>
+                      <div role="menu" aria-label="Crew actions" className="absolute right-0 top-9 z-50 flex w-48 flex-col rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground shadow-lg">
+                        <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => act(() => rpc.call("stop", { projectId: crew.projectId, name: crew.name, archive: false }), () => `${crew.name} stopped`)}>
                           Stop
                         </button>
                         <button
                           type="button"
                           role="menuitem"
-                          className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]"
+                          className="rounded px-2 py-1.5 text-left hover:bg-muted"
                           onClick={() =>
                             act(
                               () => rpc.call("snapshot", { projectId: crew.projectId, name: crew.name, label: null }),
@@ -1621,13 +1512,13 @@ function CrewsPage() {
                         >
                           Snapshot
                         </button>
-                        <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => (setMenu(false), setForm("add"))}>
+                        <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => (setMenu(false), setForm("add"))}>
                           Add member
                         </button>
-                        <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => (setMenu(false), setForm("attach"))}>
+                        <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => (setMenu(false), setForm("attach"))}>
                           Attach thread…
                         </button>
-                        <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left text-[#ef6b6b] hover:bg-[#1a1a1c]" onClick={() => (setMenu(false), setForm("delete"))}>
+                        <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left text-destructive hover:bg-muted" onClick={() => (setMenu(false), setForm("delete"))}>
                           Delete crew…
                         </button>
                       </div>
@@ -1656,8 +1547,8 @@ function CrewsPage() {
                     onDone={(text, deleted) => {
                       setForm(null);
                       if (text) setNote(text);
-                      // The crew is gone: fall back to the first remaining one, where the note shows.
-                      if (deleted) setSelected(null);
+                      // The crew is gone: back to its project, where the note shows.
+                      if (deleted) setPath(zoomOut);
                       refetch();
                     }}
                   />
@@ -1686,7 +1577,17 @@ function CrewsPage() {
                     </button>
                   ))}
                 </nav>
-                {tab === "topology" ? <TopologyTab crew={crew} members={members} links={links} onChanged={loadCrew} /> : null}
+                {tab === "topology" ? (
+                  <TopologyTab
+                    canvas={false}
+                    crew={crew}
+                    members={members}
+                    links={links}
+                    onChanged={loadCrew}
+                    selected={path.member ?? null}
+                    onSelect={(member) => setPath({ projectId: crew.projectId, crew: crew.name, member })}
+                  />
+                ) : null}
                 {tab === "table" ? <TableAndFeed crew={crew} members={members} /> : null}
                 {tab === "file" ? (
                   yaml === null ? (
@@ -1696,6 +1597,7 @@ function CrewsPage() {
                   )
                 ) : null}
               </section>
+              </aside>
             ) : null}
           </div>
         )}
@@ -1716,31 +1618,9 @@ function CrewsPage() {
           onReload={readCrewFile}
           onOverview={() => {
             setEditYaml(null);
-            setView("overview");
+            setPath(zoomOut({ projectId: crew.projectId, crew: crew.name }));
           }}
           onClose={() => setEditYaml(null)}
-        />
-      ) : null}
-      {diagramOpen ? (
-        <CrewOverviewFullscreen
-          projects={projects}
-          overviews={overviews}
-          onOpenCrew={(openProjectId, crewName) => {
-            const match = crews?.find((entry) => entry.projectId === openProjectId && entry.name === crewName);
-            if (match) {
-              setPickedProject(openProjectId);
-              setSelected(match.id);
-              setView("crew");
-            }
-            setDiagramOpen(false);
-          }}
-          onOpenTask={(_taskProjectId, taskKey) => {
-            // No in-app task side panel exists yet in this plugin (BBP-71's
-            // spec assumes one elsewhere in the BB app); best effort until
-            // that lands — open BB Tasks' own route for the key.
-            navigate.openUrl(`/tasks/${encodeURIComponent(taskKey)}`);
-          }}
-          onClose={() => setDiagramOpen(false)}
         />
       ) : null}
     </div>

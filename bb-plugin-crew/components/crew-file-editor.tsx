@@ -21,11 +21,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const ACTION_TONE: Record<string, string> = {
-  reuse: "bg-[#1a1a1c] text-muted-foreground",
-  spawn: "bg-[#0f1f17] text-[#4cc38a]",
-  unarchive: "bg-[#0f1f17] text-[#4cc38a]",
-  update: "bg-[#221c10] text-[#d9a441]",
-  remove: "bg-[#1c1011] text-[#ef6b6b]",
+  reuse: "bg-muted text-muted-foreground",
+  spawn: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  unarchive: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  update: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  remove: "bg-destructive/10 text-destructive",
 };
 
 type FormMember = {
@@ -153,14 +153,14 @@ export function CrewFileEditor({ projectId, initialYaml, onApplied }: { projectI
   return (
     <div className="flex flex-col gap-3" aria-label="Crew file editor">
       <div className="flex items-center gap-3">
-        <div className="inline-flex overflow-hidden rounded-md border border-[#1f1f22]" role="tablist" aria-label="Editor view">
+        <div className="inline-flex overflow-hidden rounded-md border border-border" role="tablist" aria-label="Editor view">
           {(["yaml", "form"] as const).map((entry) => (
             <button
               key={entry}
               type="button"
               role="tab"
               aria-selected={view === entry}
-              className={cn("px-2.5 py-1 text-xs", view === entry ? "bg-[#1a1a1c] text-foreground" : "text-muted-foreground")}
+              className={cn("px-2.5 py-1 text-xs", view === entry ? "bg-muted text-foreground" : "text-muted-foreground")}
               onClick={() => setView(entry)}
             >
               {entry === "yaml" ? "YAML" : "Form"}
@@ -175,7 +175,7 @@ export function CrewFileEditor({ projectId, initialYaml, onApplied }: { projectI
             <textarea
               aria-label="Crew file YAML"
               spellCheck={false}
-              className="h-[380px] w-full resize-y rounded-xl border border-[#1f1f22] bg-[#050505] p-3 font-mono text-xs leading-relaxed"
+              className="h-[380px] w-full resize-y rounded-xl border border-border bg-background p-3 font-mono text-xs leading-relaxed"
               value={text}
               onChange={(event) => {
                 setText(event.target.value);
@@ -185,21 +185,21 @@ export function CrewFileEditor({ projectId, initialYaml, onApplied }: { projectI
           ) : model ? (
             <FormView text={text} model={model} onChange={(next) => (setText(next), setApplied(null))} />
           ) : (
-            <p className="text-sm text-[#ef6b6b]">The YAML does not parse; fix it in the YAML view first.</p>
+            <p className="text-sm text-destructive">The YAML does not parse; fix it in the YAML view first.</p>
           )}
         </div>
         <div className="flex w-full flex-col gap-2 lg:w-[380px]">
-          <section aria-label="Problems" className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3 text-xs">
+          <section aria-label="Problems" className="rounded-xl border border-border bg-card text-card-foreground p-3 text-xs">
             <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Check</h4>
             {validation.problems.length === 0 && serverProblems.length === 0 ? (
-              <div className="rounded-md bg-[#0f1f17] px-2.5 py-1.5 text-[#4cc38a]">Valid crew file.</div>
+              <div className="rounded-md bg-emerald-500/10 px-2.5 py-1.5 text-emerald-700 dark:text-emerald-400">Valid crew file.</div>
             ) : (
               <ul className="flex flex-col gap-1">
                 {[...validation.problems, ...serverProblems].map((problem, index) => (
                   <li
                     key={index}
                     data-level={problem.level}
-                    className={cn("rounded-md px-2.5 py-1.5", problem.level === "error" ? "bg-[#1c1011] text-[#ef6b6b]" : "bg-[#221c10] text-[#d9a441]")}
+                    className={cn("rounded-md px-2.5 py-1.5", problem.level === "error" ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-700 dark:text-amber-400")}
                   >
                     {problem.message}
                   </li>
@@ -207,13 +207,13 @@ export function CrewFileEditor({ projectId, initialYaml, onApplied }: { projectI
               </ul>
             )}
             {needsFull ? (
-              <label className="mt-2 flex items-center gap-1.5 text-[#ef6b6b]">
+              <label className="mt-2 flex items-center gap-1.5 text-destructive">
                 <input type="checkbox" aria-label="Confirm full permissions" checked={confirmFull} onChange={(event) => setConfirmFull(event.target.checked)} />
                 I confirm permissions: full
               </label>
             ) : null}
           </section>
-          <section aria-label="What Apply does" className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3">
+          <section aria-label="What Apply does" className="rounded-xl border border-border bg-card text-card-foreground p-3">
             <h4 className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">What Apply does</h4>
             {errors.length > 0 ? (
               <p className="text-xs text-muted-foreground">Fix the errors to see the plan.</p>
@@ -270,7 +270,7 @@ function FormView({ text, model, onChange }: { text: string; model: NonNullable<
       {options ? (
         <select
           aria-label={label}
-          className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-xs text-foreground"
+          className="rounded-md border border-border bg-transparent px-1.5 py-1 text-xs text-foreground"
           value={value}
           onChange={(event) => onChange(setYamlValue(text, path, event.target.value))}
         >
@@ -284,7 +284,7 @@ function FormView({ text, model, onChange }: { text: string; model: NonNullable<
       ) : (
         <input
           aria-label={label}
-          className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-xs text-foreground"
+          className="rounded-md border border-border bg-transparent px-1.5 py-1 text-xs text-foreground"
           value={value}
           onChange={(event) => onChange(setYamlValue(text, path, event.target.value))}
         />
@@ -292,7 +292,7 @@ function FormView({ text, model, onChange }: { text: string; model: NonNullable<
     </label>
   );
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3" aria-label="Crew file form">
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card text-card-foreground p-3" aria-label="Crew file form">
       <div className="grid grid-cols-2 gap-2">
         {field("Name", model.crew.name!, ["name"])}
         {field("Summary", model.crew.summary!, ["summary"])}
@@ -300,7 +300,7 @@ function FormView({ text, model, onChange }: { text: string; model: NonNullable<
         {field("Crew permissions", model.crew.permissions!, ["permissions"], PERMISSIONS)}
       </div>
       {model.members.map((member) => (
-        <fieldset key={member.path.join(".")} className="grid grid-cols-2 gap-2 rounded-lg border border-[#1f1f22] p-2">
+        <fieldset key={member.path.join(".")} className="grid grid-cols-2 gap-2 rounded-lg border border-border p-2">
           <legend className="px-1 text-xs">
             {member.group}-{member.id}
             {member.lead ? " ★ lead" : ""}

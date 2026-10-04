@@ -70,9 +70,9 @@ const DOT: Record<Visual, string> = {
   failed: "var(--destructive)",
 };
 
-type MemberNodeData = { member: MemberDto; view: ActivityDto | null; selected: boolean };
+export type MemberNodeData = { member: MemberDto; view: ActivityDto | null; selected: boolean };
 
-function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
+export function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
   const { member, view, selected } = data;
   const visual = visualOf(view, member.thread);
   const needs = visual === "waiting";
@@ -130,7 +130,7 @@ function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
 /** Message colour: the host's primary, so the talk reads apart from the links. */
 const MESSAGE_STROKE = "var(--primary)";
 
-type PathEdgeData = {
+export type PathEdgeData = {
   path: string;
   labelX: number;
   labelY: number;
@@ -142,7 +142,7 @@ type PathEdgeData = {
 };
 
 /** Every edge is a path computed by the layout, like Graph Studio's LayoutEdgeView. */
-function PathEdge({ id, data }: EdgeProps<Edge<PathEdgeData>>) {
+export function PathEdge({ id, data }: EdgeProps<Edge<PathEdgeData>>) {
   if (!data) return null;
   if (data.kind !== "message") {
     const style = LINK_STYLE[data.kind] ?? LINK_STYLE.works_with!;
@@ -173,6 +173,20 @@ function PathEdge({ id, data }: EdgeProps<Edge<PathEdgeData>>) {
         </text>
       ) : null}
     </g>
+  );
+}
+
+/** Arrow heads for link and message edges; any canvas drawing PathEdge needs them once. */
+export function TopologyMarkers() {
+  return (
+    <defs>
+      <marker id="crew-link-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted-foreground)" />
+      </marker>
+      <marker id="crew-message-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--primary)" />
+      </marker>
+    </defs>
   );
 }
 
@@ -390,14 +404,7 @@ export function TopologyCanvas({
       aria-label="Topology"
     >
       <svg width="0" height="0" className="absolute" aria-hidden>
-        <defs>
-          <marker id="crew-link-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted-foreground)" />
-          </marker>
-          <marker id="crew-message-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--primary)" />
-          </marker>
-        </defs>
+        <TopologyMarkers />
       </svg>
       <ReactFlowProvider>
         <ReactFlow
@@ -516,11 +523,11 @@ function ResetSplit({ disabled, onAction }: { disabled: boolean; onAction: (acti
         ▾
       </Button>
       {open && !disabled ? (
-        <div role="menu" className="absolute right-0 top-8 z-10 flex min-w-[180px] flex-col rounded-lg border border-[#1f1f22] bg-[#0b0b0c] p-1 text-xs shadow-lg">
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => (setOpen(false), onAction("reset-clear"))}>
+        <div role="menu" className="absolute right-0 top-8 z-10 flex min-w-[180px] flex-col rounded-lg border border-border bg-popover text-popover-foreground p-1 text-xs shadow-lg">
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => (setOpen(false), onAction("reset-clear"))}>
             Reset (clear context)
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => (setOpen(false), onAction("reset-new"))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => (setOpen(false), onAction("reset-new"))}>
             Reset (new thread)
           </button>
         </div>
