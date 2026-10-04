@@ -250,6 +250,71 @@ describe("crew thread panel (BBP-49)", () => {
   });
 });
 
+describe("crew sidepanel chrome (BBP-79)", () => {
+  it("shows the crew picker, Apply/Stop/Edit/+New and the CLI hint, with Preview above the topology", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const calls: { method: string; input: unknown }[] = [];
+    const slot = renderSlot(
+      app.threadPanelActions[0]!,
+      { threadId: "th_9", params: { crew: "trio", projectId: "p1" } },
+      {
+        rpc: backend({
+          apply: (input: unknown) => (calls.push({ method: "apply", input }), { crew, problems: [], results: [] }),
+          stop: (input: unknown) => (calls.push({ method: "stop", input }), { crew: { ...crew, status: "stopped" } }),
+        }),
+      },
+    );
+    const select = (await slot.findByLabelText("Crew")) as HTMLSelectElement;
+    expect(select.value).toBe("p1:trio");
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["trio · 2 members · running"]);
+
+    fireEvent.click(slot.getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(calls).toEqual([{ method: "apply", input: { projectId: "p1", ref: "trio" } }]));
+
+    fireEvent.click(slot.getByRole("button", { name: "Stop" }));
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { method: "apply", input: { projectId: "p1", ref: "trio" } },
+        { method: "stop", input: { projectId: "p1", name: "trio", archive: false } },
+      ]),
+    );
+
+    fireEvent.click(slot.getByRole("button", { name: "Edit" }));
+    fireEvent.click(slot.getByRole("button", { name: "New" }));
+    expect(slot.navigateCalls.map((call) => call.method)).toEqual(["toPluginPanel", "toPluginPanel"]);
+
+    expect(slot.getByText("bb crew apply trio")).toBeTruthy();
+    const preview = slot.getByText("Preview");
+    const canvas = slot.container.querySelector('[aria-label="Topology"]')!;
+    expect(preview.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(select.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    slot.lifecycle.unmount();
+  });
+
+  it("negative: picking another crew in the dropdown switches the panel to it", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const beta = { id: "p1:beta", projectId: "p1", name: "beta", fileVersion: 1, status: "stopped" as const, updatedAt: 1 };
+    const asked: unknown[] = [];
+    const slot = renderSlot(
+      app.threadPanelActions[0]!,
+      { threadId: "th_9", params: { crew: "trio", projectId: "p1" } },
+      {
+        rpc: backend({
+          listCrews: () => ({ crews: [crew, beta] }),
+          getCrew: (input: unknown) => {
+            asked.push(input);
+            return (input as { name: string }).name === "beta" ? { crew: beta, members: [], links: [] } : { crew, members, links: [] };
+          },
+        }),
+      },
+    );
+    const select = (await slot.findByLabelText("Crew")) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "p1:beta" } });
+    await waitFor(() => expect(asked).toContainEqual({ projectId: "p1", name: "beta" }));
+    slot.lifecycle.unmount();
+  });
+});
+
 describe("confirmation form", () => {
   it("Confirm submits confirmed: true, Decline confirmed: false", async () => {
     const app = await loadPluginApp(() => import("../app"));
