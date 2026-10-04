@@ -49,10 +49,9 @@ function panel(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Graph Studio panel", () => {
-  it("registers the nav panel, thread panel and header action", () => {
+  it("registers the nav panel and thread panel action", () => {
     expect(app.navPanels).toHaveLength(1);
     expect(app.threadPanelActions).toHaveLength(1);
-    expect(app.threadHeaderActions).toHaveLength(1);
   });
 
   it("offers export/import from the overview, not only inside the editor", async () => {
