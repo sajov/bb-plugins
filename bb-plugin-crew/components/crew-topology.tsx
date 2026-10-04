@@ -13,6 +13,7 @@ import "@xyflow/react/dist/style.css";
 import type { ActivityDto, MemberDto, MessageDto } from "../server";
 import { shownFlows, type Flow } from "../lib/comms";
 import { crewLayers, MARGIN, pathBetween, placeLayers, slots, type Box } from "../lib/canvas-layout";
+import { formatContextShare } from "../lib/format";
 import { activityLabel, activityTone, hasErrorReason, LINK_STYLE, RUNNING, SEVERITY_TEXT, SEVERITY_TEXT_COLOR, severityTint, topReasonLabel } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -657,7 +658,7 @@ export function MemberCard({
             { label: "Model", value: `${member.provider ?? "?"} · ${shortModel(member.model)}` },
             { label: "Permissions", value: member.permissions ?? "?", className: member.permissions === "full" ? "text-destructive" : undefined },
             { label: "Thread", value: member.thread === "present" ? (member.status ?? "?") : member.thread },
-            { label: "Context", value: view?.context !== null && view?.context !== undefined ? `${Math.round(view.context * 100)}%` : "–" },
+            { label: "Context", value: view?.context !== null && view?.context !== undefined ? formatContextShare(view.context) : "–" },
             { label: "Queue", value: `${view?.openWork ?? 0} open${view && view.held > 0 ? ` · ${view.held} held` : ""}` },
             view !== null && view.diagnoses.length > 0 && { label: "Diagnosis", value: view.diagnoses.join(" · "), className: "text-amber-600 dark:text-amber-400" },
           ]}

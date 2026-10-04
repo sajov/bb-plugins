@@ -438,7 +438,7 @@ describe("Crews zoom canvas (BBP-83)", () => {
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
       rpc: twoProjects({
         getCrew: () => ({ crew, members: [member({ actualModel: "opus" })], links: [] }),
-        getActivity: () => ({ members: [view({ key: "dev-impl", context: 42, openWork: 2, held: 1 })] }),
+        getActivity: () => ({ members: [view({ key: "dev-impl", context: 0.42, openWork: 2, held: 1 })] }),
         listWork: () => ({
           items: [
             { id: "wi_9", title: "Fix the zoom", body: "", owner: "dev-impl@trio", state: "claimed", tier: "p1", dueAt: null, taskKey: null, closureNote: null, rung: 0 },

@@ -10,6 +10,7 @@ import { z } from "zod";
 import { formatChannelLine } from "./channel";
 import { AddressError, messagingRules, type Sender } from "./delivery";
 import { directoryRefusal, formatDirectory } from "./directory";
+import { formatContextShare } from "./format";
 import { formatMerge } from "./integration";
 import type { CrewPolicy } from "./policy";
 import { formatWorkItem, workRules } from "./queue";
@@ -612,7 +613,7 @@ export function registerAgentTools(bb: BbPluginApi, service: CrewService, option
           const handover = store.activeHandover(view.memberRow);
           lines.push(
             `- ${view.key}${view.lead ? " (lead)" : ""} shift ${shift ?? "-"} · ${view.activity}${view.needsYou.length ? ` · Needs you: ${view.needsYou.join(", ")}` : ""} · work ${view.openWork} · held ${view.held}${
-              view.context !== null ? ` · context ${Math.round(view.context * 100)}%` : ""
+              view.context !== null ? ` · context ${formatContextShare(view.context)}` : ""
             }${view.diagnoses.length ? ` · ${view.diagnoses.join(", ")}` : ""}${handover ? ` · handover ${handover.state}` : ""}`,
           );
         }

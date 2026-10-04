@@ -14,3 +14,8 @@ export function formatPlan(items: readonly PlanLine[]): string[] {
       `  ${item.action.padEnd(9)} ${item.address.padEnd(28)} ${item.threadId ?? "-"}${item.reasons.length ? `  (${item.reasons.join("; ")})` : ""}`,
   );
 }
+
+/** A member's context use (0..1) as the rounded percentage shown in the UI and agent tools. */
+export function formatContextShare(share: number): string {
+  return `${Math.round(share * 100)}%`;
+}
