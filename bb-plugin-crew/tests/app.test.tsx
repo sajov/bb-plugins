@@ -514,6 +514,20 @@ describe("Project overview (E3)", () => {
     slot.lifecycle.unmount();
   });
 
+  it("BBP-81: the Diagram fullscreen canvas fills the layer instead of a fixed height", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend() });
+    fireEvent.click(await slot.findByRole("button", { name: "Diagram" }));
+    const canvas = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>('[aria-label="Crew overview diagram"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(canvas.style.height).toBe("");
+    expect(canvas.className).toContain("h-full");
+    slot.lifecycle.unmount();
+  });
+
   it("BBP-81: lead communication uses theme tokens; negative: no hard-coded dark surface on it or its filters", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend() });

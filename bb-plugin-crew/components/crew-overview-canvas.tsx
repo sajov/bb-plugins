@@ -227,16 +227,15 @@ export function OverviewCanvas({
     data: edge.kind === "task-crew" ? { active: edge.active } : undefined,
   }));
 
-  const height = Math.min(720, Math.max(240, layout.height + 48));
-
   return (
     <div
       ref={(element) => {
         hostRef.current = element;
         colorRef.current = element;
       }}
-      className="relative w-full min-w-0 overflow-hidden rounded-lg border border-border bg-background"
-      style={{ height }}
+      // BBP-81: the layer gives the canvas its full height, as in Graph Studio;
+      // a height derived from the drawing left a thin strip of tiny cards.
+      className="relative h-full w-full min-w-0 overflow-hidden rounded-lg border border-border bg-background"
       aria-label="Crew overview diagram"
     >
       <ReactFlowProvider>

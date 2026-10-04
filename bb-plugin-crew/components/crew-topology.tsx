@@ -7,7 +7,7 @@
 // strokes, and the messages members actually sent in the primary colour, a
 // dot travelling along a flow while its talk is recent. Clicking a card picks
 // the member; double-clicking opens its thread.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Controls, Handle, Position, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, type ColorMode, type Edge, type EdgeProps, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ActivityDto, MemberDto, MessageDto } from "../server";
@@ -270,11 +270,20 @@ export function colorLightness(color: string): number | null {
 export function useHostColorMode(): [React.RefObject<HTMLDivElement | null>, ColorMode] {
   const ref = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<ColorMode>("system");
-  useLayoutEffect(() => {
+  const measure = useCallback(() => {
     if (!ref.current || typeof getComputedStyle !== "function") return;
     const lightness = colorLightness(getComputedStyle(ref.current).backgroundColor);
     if (lightness !== null) setMode(lightness < 0.5 ? "dark" : "light");
-  });
+  }, []);
+  useLayoutEffect(measure);
+  // BBP-81: BB switches the theme by class on <html> without re-rendering the
+  // plugin; measured only on render, the canvas kept the theme it opened in.
+  useEffect(() => {
+    if (typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver(measure);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+    return () => observer.disconnect();
+  }, [measure]);
   return [ref, mode];
 }
 
