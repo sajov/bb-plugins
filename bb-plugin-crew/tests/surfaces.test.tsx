@@ -54,7 +54,7 @@ const backend = (overrides: Record<string, (input: unknown) => unknown> = {}) =>
   getActivity: () => ({ members: [view({ key: "orch-lead", address: "orch-lead@trio", lead: true }), view({})] }),
   listMessages: () => ({ messages: [] }),
   rowStatuses: () => ({ rows: [], needsYou: 0 }),
-  projectOverview: () => ({ crews: [], leadLinks: [], dependencies: [], threads: { limit: null, source: "none", running: 0, members: 0 } }),
+  projectOverview: () => ({ crews: [{ name: "trio", status: "running", summary: "", task: null, branch: null, behind: 0, merge: null, needsYou: 0, members: [] }], leadLinks: [], dependencies: [], threads: { limit: null, source: "none", running: 0, members: 0 } }),
   listChannel: () => ({ posts: [] }),
   listWork: () => ({ items: [] }),
   getCrewFile: () => ({ yaml: trioYaml(), version: 2 }),
@@ -63,8 +63,11 @@ const backend = (overrides: Record<string, (input: unknown) => unknown> = {}) =>
 });
 
 async function openCrew(slot: ReturnType<typeof renderSlot>, tab: string) {
-  const list = await slot.findByRole("list", { name: "Crews" });
-  fireEvent.click(within(list).getByRole("button", { name: "trio" }));
+  fireEvent.click(await waitFor(() => {
+    const node = slot.container.querySelector<HTMLElement>('[data-crew-node="trio"]');
+    expect(node).not.toBeNull();
+    return node!;
+  }));
   fireEvent.click(await slot.findByRole("button", { name: tab }));
 }
 
@@ -251,6 +254,78 @@ describe("crew thread panel (BBP-49)", () => {
   });
 });
 
+describe("crew sidepanel chrome (BBP-79)", () => {
+  it("shows the crew picker, Apply/Stop/Edit/+New and the CLI hint, with Preview above the topology", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const calls: { method: string; input: unknown }[] = [];
+    const slot = renderSlot(
+      app.threadPanelActions[0]!,
+      { threadId: "th_9", params: { crew: "trio", projectId: "p1" } },
+      {
+        rpc: backend({
+          apply: (input: unknown) => (calls.push({ method: "apply", input }), { crew, problems: [], results: [] }),
+          stop: (input: unknown) => (calls.push({ method: "stop", input }), { crew: { ...crew, status: "stopped" } }),
+        }),
+      },
+    );
+    const select = (await slot.findByLabelText("Crew")) as HTMLSelectElement;
+    expect(select.value).toBe("p1:trio");
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(["trio · 2 members · running"]);
+
+    fireEvent.click(slot.getByRole("button", { name: "Apply" }));
+    await waitFor(() => expect(calls).toEqual([{ method: "apply", input: { projectId: "p1", ref: "trio" } }]));
+
+    fireEvent.click(slot.getByRole("button", { name: "Stop" }));
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { method: "apply", input: { projectId: "p1", ref: "trio" } },
+        { method: "stop", input: { projectId: "p1", name: "trio", archive: false } },
+      ]),
+    );
+
+    fireEvent.click(slot.getByRole("button", { name: "Edit" }));
+    await slot.findByRole("dialog", { name: "Edit crew p1 — trio — full screen" });
+    fireEvent.click(slot.getByRole("button", { name: /Leave full screen/ }));
+
+    fireEvent.click(slot.getByRole("button", { name: "New" }));
+    expect(slot.navigateCalls.map((call) => call.method)).toEqual(["toPluginPanel"]);
+
+    expect(slot.getByText("bb crew apply trio")).toBeTruthy();
+    const preview = slot.getByText("Preview");
+    const canvas = slot.container.querySelector('[aria-label="Topology"]')!;
+    expect(preview.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // mockup 1: group/role label, status dot and a model chip on every member card.
+    const leadCard = canvas.querySelector('[data-member-node="orch-lead"]')!;
+    expect(leadCard.textContent).toContain("lead");
+    expect(leadCard.querySelector("[data-member-meta] span")!.textContent).toBe("haiku-4-5");
+    expect(select.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    slot.lifecycle.unmount();
+  });
+
+  it("negative: picking another crew in the dropdown switches the panel to it", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const beta = { id: "p1:beta", projectId: "p1", name: "beta", fileVersion: 1, status: "stopped" as const, updatedAt: 1 };
+    const asked: unknown[] = [];
+    const slot = renderSlot(
+      app.threadPanelActions[0]!,
+      { threadId: "th_9", params: { crew: "trio", projectId: "p1" } },
+      {
+        rpc: backend({
+          listCrews: () => ({ crews: [crew, beta] }),
+          getCrew: (input: unknown) => {
+            asked.push(input);
+            return (input as { name: string }).name === "beta" ? { crew: beta, members: [], links: [] } : { crew, members, links: [] };
+          },
+        }),
+      },
+    );
+    const select = (await slot.findByLabelText("Crew")) as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "p1:beta" } });
+    await waitFor(() => expect(asked).toContainEqual({ projectId: "p1", name: "beta" }));
+    slot.lifecycle.unmount();
+  });
+});
+
 describe("confirmation form", () => {
   it("Confirm submits confirmed: true, Decline confirmed: false", async () => {
     const app = await loadPluginApp(() => import("../app"));
@@ -293,7 +368,7 @@ describe("topology", () => {
         sendMessage: (input: unknown) => (sent.push(input), { messages: [], error: null }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     await waitFor(() => expect(slot.container.querySelector('[data-member-node="dev-impl"]')?.getAttribute("data-activity")).toBe("needs-you"));
     expect(slot.container.querySelector('[data-member-node="orch-lead"]')!.getAttribute("data-activity")).toBe("working");
     const card = slot.getByRole("complementary", { name: "Member card" });
@@ -315,7 +390,7 @@ describe("topology", () => {
         reset: (input: unknown) => (calls.push({ method: "reset", input }), { results: [], problems: [], error: null }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const card = await slot.findByRole("complementary", { name: "Member card" });
     expect(card.querySelector("[data-needs-you]")).toBeNull();
     expect(card.textContent).toContain("orch-lead@trio");
@@ -338,7 +413,7 @@ describe("topology", () => {
         }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     // negative: the initially selected lead card has no runs, so none of this shows.
     const leadCard = await slot.findByRole("complementary", { name: "Member card" });
     expect(leadCard.textContent).not.toContain("release");
@@ -421,7 +496,7 @@ describe("topology canvas surfaces", () => {
   it("cards name their group in Graph Studio's kind line; no group boxes are drawn", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend({}) });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const node = await waitFor(() => {
       const found = slot.container.querySelector('[data-member-node="dev-impl"]');
       expect(found).not.toBeNull();
@@ -442,7 +517,7 @@ describe("topology canvas surfaces", () => {
         }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const meta = await waitFor(() => {
       const found = slot.container.querySelector('[data-member-node="dev-impl"] [data-member-meta]');
       expect(found).not.toBeNull();
@@ -464,7 +539,7 @@ describe("topology canvas surfaces", () => {
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
       rpc: backend({ reset: (input: unknown) => (calls.push(input), { results: [], problems: [], error: null }) }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const card = await slot.findByRole("complementary", { name: "Member card" });
     // Negative first: no loose "Reset (new thread)" control before the menu is opened.
     expect(within(card).queryByText("Reset (new thread)")).toBeNull();
@@ -480,7 +555,7 @@ describe("topology canvas surfaces", () => {
 });
 
 describe("crew header", () => {
-  it("dropdown, Open all and the ⋯ menu with Stop, Snapshot, Add member, Attach, Delete", async () => {
+  it("breadcrumb, Open all and the ⋯ menu with Stop, Snapshot, Add member, Attach, Delete", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const calls: { method: string; input: unknown }[] = [];
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
@@ -490,8 +565,10 @@ describe("crew header", () => {
         attachCandidates: () => ({ threads: [{ id: "thr_x", title: "scratch", status: "idle", providerId: "claude-code" }] }),
       }),
     });
-    await openCrew(slot, "Topology");
-    expect((slot.getByLabelText("Crew") as HTMLSelectElement).value).toBe("p1:trio");
+    await openCrew(slot, "Members");
+    // BBP-83: the breadcrumb names the crew; the old crew dropdown is gone.
+    expect(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "trio" }).getAttribute("aria-current")).toBe("page");
+    expect(slot.queryByLabelText("Crew")).toBeNull();
     fireEvent.click(slot.getByRole("button", { name: "Open all" }));
     await slot.findByText("Opened 2 thread(s) side by side");
     fireEvent.click(slot.getByRole("button", { name: "More crew actions" }));
@@ -514,7 +591,7 @@ describe("add member form", () => {
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
       rpc: backend({ addMember: (input: unknown) => (sent.push(input as Record<string, unknown>), { results: [{ result: "spawned", address: "dev-x@trio" }], error: null }) }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const open = () => {
       fireEvent.click(slot.getByRole("button", { name: "More crew actions" }));
       fireEvent.click(slot.getByRole("menuitem", { name: "Add member" }));

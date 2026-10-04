@@ -65,7 +65,7 @@ describe("buildOverviewGraph", () => {
       [{ id: "p1", name: "P1" }, { id: "p2", name: "P2" }],
       new Map([["p1", source()]]),
     );
-    expect(graph.projects).toEqual([
+    expect(graph.projects).toMatchObject([
       { id: "p1", name: "P1", crewCount: 2, taskCount: 2 },
       { id: "p2", name: "P2", crewCount: 0, taskCount: 0 },
     ]);

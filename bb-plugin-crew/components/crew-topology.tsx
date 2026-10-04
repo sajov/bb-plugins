@@ -7,7 +7,7 @@
 // strokes, and the messages members actually sent in the primary colour, a
 // dot travelling along a flow while its talk is recent. Clicking a card picks
 // the member; double-clicking opens its thread.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Controls, Handle, Position, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, type ColorMode, type Edge, type EdgeProps, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { ActivityDto, MemberDto, MessageDto } from "../server";
@@ -70,9 +70,9 @@ const DOT: Record<Visual, string> = {
   failed: "var(--destructive)",
 };
 
-type MemberNodeData = { member: MemberDto; view: ActivityDto | null; selected: boolean };
+export type MemberNodeData = { member: MemberDto; view: ActivityDto | null; selected: boolean };
 
-function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
+export function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
   const { member, view, selected } = data;
   const visual = visualOf(view, member.thread);
   const needs = visual === "waiting";
@@ -109,10 +109,14 @@ function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
         <span className="relative truncate text-xs font-medium text-foreground" title={member.address}>
           {member.key}
         </span>
-        {/* Status first, then shift, then model, as before — the line the tests and the eye read. */}
+        {/* Status first, then shift, then model, as before — the line the tests and the eye read.
+            BBP-79: the model reads as a chip (mockup 1), not bare text in the sentence. */}
         <div data-member-meta className="relative line-clamp-2 break-words text-[10px] leading-[14px] text-muted-foreground">
           {activityLabel(view, member.thread)}
-          {member.shift !== null ? ` · Shift ${member.shift}` : ""} · {shortModel(member.model)}
+          {member.shift !== null ? ` · Shift ${member.shift}` : ""} ·{" "}
+          <span className="inline-block rounded bg-muted px-1 py-px align-middle text-[9px] font-medium leading-[14px] text-foreground/80">
+            {shortModel(member.model)}
+          </span>
         </div>
       </div>
       <Handle type="source" position={Position.Bottom} isConnectable={false} className="!pointer-events-none !opacity-0" />
@@ -126,7 +130,7 @@ function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
 /** Message colour: the host's primary, so the talk reads apart from the links. */
 const MESSAGE_STROKE = "var(--primary)";
 
-type PathEdgeData = {
+export type PathEdgeData = {
   path: string;
   labelX: number;
   labelY: number;
@@ -138,7 +142,7 @@ type PathEdgeData = {
 };
 
 /** Every edge is a path computed by the layout, like Graph Studio's LayoutEdgeView. */
-function PathEdge({ id, data }: EdgeProps<Edge<PathEdgeData>>) {
+export function PathEdge({ id, data }: EdgeProps<Edge<PathEdgeData>>) {
   if (!data) return null;
   if (data.kind !== "message") {
     const style = LINK_STYLE[data.kind] ?? LINK_STYLE.works_with!;
@@ -169,6 +173,20 @@ function PathEdge({ id, data }: EdgeProps<Edge<PathEdgeData>>) {
         </text>
       ) : null}
     </g>
+  );
+}
+
+/** Arrow heads for link and message edges; any canvas drawing PathEdge needs them once. */
+export function TopologyMarkers() {
+  return (
+    <defs>
+      <marker id="crew-link-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted-foreground)" />
+      </marker>
+      <marker id="crew-message-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--primary)" />
+      </marker>
+    </defs>
   );
 }
 
@@ -270,11 +288,20 @@ export function colorLightness(color: string): number | null {
 export function useHostColorMode(): [React.RefObject<HTMLDivElement | null>, ColorMode] {
   const ref = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<ColorMode>("system");
-  useLayoutEffect(() => {
+  const measure = useCallback(() => {
     if (!ref.current || typeof getComputedStyle !== "function") return;
     const lightness = colorLightness(getComputedStyle(ref.current).backgroundColor);
     if (lightness !== null) setMode(lightness < 0.5 ? "dark" : "light");
-  });
+  }, []);
+  useLayoutEffect(measure);
+  // BBP-81: BB switches the theme by class on <html> without re-rendering the
+  // plugin; measured only on render, the canvas kept the theme it opened in.
+  useEffect(() => {
+    if (typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver(measure);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+    return () => observer.disconnect();
+  }, [measure]);
   return [ref, mode];
 }
 
@@ -377,14 +404,7 @@ export function TopologyCanvas({
       aria-label="Topology"
     >
       <svg width="0" height="0" className="absolute" aria-hidden>
-        <defs>
-          <marker id="crew-link-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--muted-foreground)" />
-          </marker>
-          <marker id="crew-message-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--primary)" />
-          </marker>
-        </defs>
+        <TopologyMarkers />
       </svg>
       <ReactFlowProvider>
         <ReactFlow
@@ -503,11 +523,11 @@ function ResetSplit({ disabled, onAction }: { disabled: boolean; onAction: (acti
         ▾
       </Button>
       {open && !disabled ? (
-        <div role="menu" className="absolute right-0 top-8 z-10 flex min-w-[180px] flex-col rounded-lg border border-[#1f1f22] bg-[#0b0b0c] p-1 text-xs shadow-lg">
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => (setOpen(false), onAction("reset-clear"))}>
+        <div role="menu" className="absolute right-0 top-8 z-10 flex min-w-[180px] flex-col rounded-lg border border-border bg-popover text-popover-foreground p-1 text-xs shadow-lg">
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => (setOpen(false), onAction("reset-clear"))}>
             Reset (clear context)
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => (setOpen(false), onAction("reset-new"))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => (setOpen(false), onAction("reset-new"))}>
             Reset (new thread)
           </button>
         </div>

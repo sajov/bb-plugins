@@ -104,8 +104,7 @@ const overview = (overrides: Partial<OverviewDto>): OverviewDto => ({
 
 /** The overview is the entry; the crew view opens from the crew list. */
 async function openCrew(slot: { findByRole: (role: string, options: { name: string }) => Promise<HTMLElement> }, tab = "Table & Feed") {
-  const list = await slot.findByRole("list", { name: "Crews" });
-  fireEvent.click(within(list).getByRole("button", { name: "trio" }));
+  await clickNode(slot as never, '[data-crew-node="trio"]');
   // Topology is the first tab; most tests look at Table & Feed.
   fireEvent.click(await slot.findByRole("button", { name: tab }));
 }
@@ -135,12 +134,14 @@ describe("Crews panel", () => {
       },
     });
     await openCrew(slot);
-    await slot.findByText("orch-lead@trio");
-    expect(slot.getByText("file v2", { exact: false })).toBeTruthy();
-    expect(slot.getAllByText("lead")).toHaveLength(1);
-    expect(slot.getAllByText("full")).toHaveLength(1);
-    expect(slot.getByText("archived")).toBeTruthy();
-    expect(slot.getByText("3")).toBeTruthy();
+    // The canvas draws the members too; the table lives in the crew panel.
+    const panel = within(slot.getByRole("complementary", { name: "Crew details" }));
+    await panel.findByText("orch-lead@trio");
+    expect(panel.getByText("file v2", { exact: false })).toBeTruthy();
+    expect(panel.getAllByText("lead")).toHaveLength(1);
+    expect(panel.getAllByText("full")).toHaveLength(1);
+    expect(panel.getByText("archived")).toBeTruthy();
+    expect(panel.getByText("3")).toBeTruthy();
     slot.lifecycle.unmount();
   });
 
@@ -366,138 +367,165 @@ describe("row icons without any mounted React surface", () => {
   });
 });
 
-describe("Project overview (E3)", () => {
-  it("is the entry: crew cards with task, branch, behind main, Needs you; lines for lead talk and waitsFor; merge buttons on a waiting MR", async () => {
+/** Waits for a node on the zoom canvas and clicks it. */
+async function clickNode(slot: { container: HTMLElement }, selector: string) {
+  const node = await waitFor(() => {
+    const found = slot.container.querySelector<HTMLElement>(selector);
+    expect(found).not.toBeNull();
+    return found!;
+  });
+  fireEvent.click(node);
+}
+const crumbs = (slot: { getByRole: (role: string, options: { name: string }) => HTMLElement }) =>
+  within(slot.getByRole("navigation", { name: "Breadcrumb" }))
+    .getAllByRole("button")
+    .map((b) => b.textContent);
+
+describe("Crews zoom canvas (BBP-83)", () => {
+  const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15", projectName: "Graph Studio" };
+  const twoProjects = (extra: Record<string, unknown> = {}) =>
+    backend({
+      listCrews: () => ({ crews: [{ ...crew, projectName: "BB Plugins" }, foreign] }),
+      projectOverview: (input: never) =>
+        (input as { projectId: string }).projectId === "p2"
+          ? overview({ crews: [card({ name: "gs15", status: "running", needsYou: 1 })] })
+          : overview({ crews: [card({}), card({ name: "beta", status: "idle" })] }),
+      ...extra,
+    });
+
+  it("level 0 shows every project as a cluster with crew count, running and waiting; no Diagram button, zoom bottom-left", async () => {
     const app = await loadPluginApp(() => import("../app"));
-    const calls: { method: string; input: unknown }[] = [];
-    const beta = { ...crew, id: "p1:beta", name: "beta" };
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: twoProjects() });
+    await waitFor(() => expect(slot.container.querySelectorAll("[data-project-frame]")).toHaveLength(2));
+    const p2 = slot.container.querySelector('[data-project-frame="p2"]')!;
+    expect(p2.textContent).toContain("Graph Studio");
+    expect(p2.textContent).toContain("1 crew");
+    expect(p2.querySelector('[data-cluster="running"]')!.textContent).toContain("1");
+    expect(p2.querySelector('[data-cluster="needs-you"]')!.textContent).toContain("1");
+    // negative: a project nobody waits on shows no waiting count
+    expect(slot.container.querySelector('[data-project-frame="p1"] [data-cluster="needs-you"]')).toBeNull();
+    expect(crumbs(slot)).toEqual(["All"]);
+    expect(slot.queryByRole("button", { name: "Diagram" })).toBeNull();
+    expect(slot.queryByRole("region", { name: "Lead communication" })).toBeNull();
+    const canvas = slot.getByLabelText("Crews canvas");
+    expect(canvas.querySelector(".react-flow__panel.bottom.left")).not.toBeNull();
+    slot.lifecycle.unmount();
+  });
+
+  it("level 1: a cluster zooms into its project with its lead communication; Esc goes back to all projects", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const asked: unknown[] = [];
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
+      rpc: twoProjects({ listMessages: (input: never) => (asked.push(input), { messages: [message({ subject: "Is the schema stable?", crossCrew: true })] }) }),
+    });
+    await clickNode(slot, '[data-project-frame="p2"]');
+    await waitFor(() => expect(crumbs(slot)).toEqual(["All", "Graph Studio"]));
+    const feed = await slot.findByRole("region", { name: "Lead communication" });
+    expect(feed.className).toContain("bg-card");
+    expect(feed.className).not.toMatch(/#0b0b0c|#1f1f22/);
+    await waitFor(() => expect(asked).toContainEqual(expect.objectContaining({ projectId: "p2", crossCrew: true })));
+    // The other project's crews fade, they do not vanish.
+    expect(slot.container.querySelector('[data-crew-node="trio"]')!.closest("[data-dim]")).not.toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(crumbs(slot)).toEqual(["All"]));
+    slot.lifecycle.unmount();
+  });
+
+  it("level 2 and 3 stay on the canvas: the crew opens into its members, a member into its agent card; Esc climbs one level at a time", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const calls: unknown[] = [];
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
+      rpc: twoProjects({
+        getCrew: () => ({ crew, members: [member({ actualModel: "opus" })], links: [] }),
+        getActivity: () => ({ members: [view({ key: "dev-impl", context: 42, openWork: 2, held: 1 })] }),
+        listWork: () => ({
+          items: [
+            { id: "wi_9", title: "Fix the zoom", body: "", owner: "dev-impl@trio", state: "claimed", tier: "p1", dueAt: null, taskKey: null, closureNote: null, rung: 0 },
+            { id: "wi_8", title: "Someone else's", body: "", owner: "dev-review@trio", state: "claimed", tier: "p1", dueAt: null, taskKey: null, closureNote: null, rung: 0 },
+          ],
+        }),
+        handover: (input: never) => (calls.push(input), { error: null }),
+      }),
+    });
+    await clickNode(slot, '[data-project-frame="p1"]');
+    await clickNode(slot, '[data-crew-node="trio"]');
+    await waitFor(() => expect(crumbs(slot)).toEqual(["All", "BB Plugins", "trio"]));
+    const canvas = slot.getByLabelText("Crews canvas");
+    // The members are drawn on the same canvas, inside the crew.
+    await waitFor(() => expect(canvas.querySelector('[data-member-node="dev-impl"]')).not.toBeNull());
+    expect(canvas.querySelector("[data-agent-node]")).toBeNull();
+    const panel = slot.getByRole("complementary", { name: "Crew details" });
+    expect(within(panel).getByRole("button", { name: "Edit" })).toBeTruthy();
+    await clickNode(slot, '[data-member-node="dev-impl"]');
+    await waitFor(() => expect(crumbs(slot)).toEqual(["All", "BB Plugins", "trio", "dev-impl"]));
+    const agent = await waitFor(() => {
+      const found = canvas.querySelector<HTMLElement>('[data-agent-node="dev-impl"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(agent.textContent).toContain("opus");
+    expect(agent.textContent).toContain("42%");
+    expect(agent.textContent).toContain("Fix the zoom");
+    // negative: another member's work item is not this agent's
+    expect(agent.textContent).not.toContain("Someone else's");
+    fireEvent.click(within(agent).getByRole("button", { name: "Handover" }));
+    await waitFor(() => expect(calls).toContainEqual({ projectId: "p1", name: "trio", member: "dev-impl" }));
+    expect(within(agent).getByRole("button", { name: "Open" })).toBeTruthy();
+    expect(within(agent).getByRole("button", { name: "Reset" })).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(crumbs(slot)).toEqual(["All", "BB Plugins", "trio"]));
+    expect(canvas.querySelector("[data-agent-node]")).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(crumbs(slot)).toEqual(["All", "BB Plugins"]));
+    expect(canvas.querySelector("[data-member-node]")).toBeNull();
+    fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "All" }));
+    await waitFor(() => expect(crumbs(slot)).toEqual(["All"]));
+    slot.lifecycle.unmount();
+  });
+
+  it("level 0 keeps the project filter with counts and the search; negative: not on level 1", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: twoProjects() });
+    await waitFor(() => expect(slot.container.querySelectorAll("[data-project-frame]")).toHaveLength(2));
+    const chips = slot.getByRole("group", { name: "Projects" });
+    expect(within(chips).getAllByRole("button").map((b) => b.textContent)).toEqual(["All", "BB Plugins1", "Graph Studio1"]);
+    fireEvent.click(within(chips).getByRole("button", { name: /Graph Studio/ }));
+    await waitFor(() => expect(slot.container.querySelector('[data-project-frame="p2"]')).toBeNull());
+    fireEvent.click(within(chips).getByRole("button", { name: "All" }));
+    await waitFor(() => expect(slot.container.querySelector('[data-project-frame="p2"]')).not.toBeNull());
+    fireEvent.change(slot.getByRole("searchbox", { name: "Search crews, members and tasks" }), { target: { value: "beta" } });
+    await waitFor(() => expect(slot.container.querySelector('[data-crew-node="trio"]')!.closest("[data-dim]")).not.toBeNull());
+    expect(slot.container.querySelector('[data-crew-node="beta"]')!.closest("[data-dim]")).toBeNull();
+    await clickNode(slot, '[data-project-frame="p1"]');
+    await waitFor(() => expect(slot.queryByRole("group", { name: "Projects" })).toBeNull());
+    slot.lifecycle.unmount();
+  });
+
+  it("negative: Esc typed in a field does not zoom out", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: twoProjects() });
+    await clickNode(slot, '[data-project-frame="p1"]');
+    const select = await slot.findByLabelText("Filter by crew");
+    fireEvent.keyDown(select, { key: "Escape" });
+    expect(crumbs(slot)).toEqual(["All", "BB Plugins"]);
+    slot.lifecycle.unmount();
+  });
+
+  it("level 1 lists a waiting merge with Merge and Reject; negative: a merged one has no buttons", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const calls: unknown[] = [];
     const merge = { id: "mr_1", crew: "trio", branch: "bb/trio-1", base: "main", state: "open" as const, reason: null, commitSha: null, mergedBy: null, createdAt: 1 };
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
       rpc: backend({
-        listCrews: () => ({ crews: [crew, beta] }),
-        projectOverview: () =>
-          overview({
-            crews: [card({ merge, needsYou: 1 }), card({ name: "beta", task: "CRD-2", merge: { ...merge, id: "mr_0", state: "merged" } })],
-            leadLinks: [{ from: "beta", to: "trio", count: 3 }],
-            dependencies: [{ crew: "beta", task: "CRD-1", until: "merged", state: "open", source: "trio" }],
-            threads: { limit: 2, source: "plugin", running: 2, members: 5 },
-          }),
-        listMessages: (input: never) => {
-          calls.push({ method: "listMessages", input });
-          return { messages: [message({ subject: "Is the schema stable?", crossCrew: true })] };
-        },
-        mergeAction: (input: never) => {
-          calls.push({ method: "mergeAction", input });
-          return { merge: null, error: null };
-        },
+        projectOverview: () => overview({ crews: [card({ merge }), card({ name: "beta", merge: { ...merge, id: "mr_0", crew: "beta", state: "merged" } })] }),
+        mergeAction: (input: never) => (calls.push(input), { merge: null, error: null }),
       }),
     });
-    await slot.findByLabelText("Project overview");
-    // The section renders before projectOverview answers; wait for the card, not the frame.
-    const trioCard = await waitFor(() => {
-      const found = slot.container.querySelector('[data-crew-card="trio"]');
-      expect(found).not.toBeNull();
-      return found!;
-    });
-    expect(trioCard.textContent).toContain("CRD-1");
-    expect(trioCard.textContent).toContain("⎇ bb/trio-1 · 2 behind main · MR open");
-    expect(trioCard.textContent).toContain("1 Needs you");
-    expect(slot.container.querySelectorAll('[data-line="lead"]')).toHaveLength(1);
-    expect(slot.container.querySelectorAll('[data-line="wait"]')).toHaveLength(1);
-    expect(slot.getByText("beta → trio: waits for CRD-1 · until merged · open", { exact: false })).toBeTruthy();
-    // Only the waiting MR has buttons; the merged one of beta does not.
-    expect(slot.getAllByRole("button", { name: "Merge" })).toHaveLength(1);
-    fireEvent.click(slot.getByRole("button", { name: "Merge" }));
-    await waitFor(() => expect(calls.find((c) => c.method === "mergeAction")?.input).toEqual({ id: "mr_1", action: "approve", note: "" }));
-    expect(slot.container.querySelector('[data-thread-limit="over"]')).not.toBeNull();
-    await slot.findByText("Is the schema stable?");
-    expect(calls.find((c) => c.method === "listMessages")!.input).toMatchObject({ projectId: "p1", crossCrew: true });
-    fireEvent.change(slot.getByLabelText("Filter by crew"), { target: { value: "beta" } });
-    await waitFor(() => expect(calls.some((c) => (c.input as { crew?: string }).crew === "beta")).toBe(true));
-    slot.lifecycle.unmount();
-  });
-
-  it("negative: no connections draws no lines; within the limit there is no warning; no MR, no merge button", async () => {
-    const app = await loadPluginApp(() => import("../app"));
-    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend() });
-    await slot.findByLabelText("Project overview");
-    await waitFor(() => expect(slot.container.querySelector("[data-crew-card]")).not.toBeNull());
-    expect(slot.container.querySelector("[data-line]")).toBeNull();
-    expect(slot.queryByLabelText("Connections")).toBeNull();
-    expect(slot.container.querySelector('[data-thread-limit="over"]')).toBeNull();
-    expect(slot.container.querySelector('[data-thread-limit="ok"]')).not.toBeNull();
-    expect(slot.queryByRole("button", { name: "Merge" })).toBeNull();
-    slot.lifecycle.unmount();
-  });
-
-  it("stopped crews of the project are cards marked stopped and counted; other projects sit behind the project switch, not in Crews", async () => {
-    const app = await loadPluginApp(() => import("../app"));
-    const halted = { ...crew, id: "p1:halted", name: "halted", status: "stopped" as const };
-    const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15", status: "stopped" as const, projectName: "Graph Studio" };
-    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
-      rpc: backend({
-        listCrews: () => ({ crews: [{ ...crew, projectName: "BB Plugins" }, halted, foreign] }),
-        projectOverview: () => overview({ crews: [card({}), card({ name: "halted", status: "stopped" })] }),
-      }),
-    });
-    const here = await slot.findByRole("list", { name: "Crews" });
-    expect(within(here).getAllByRole("button").map((b) => b.textContent)).toEqual(["trio", "halted"]);
-    // negative: no second row of chips for the rest
-    expect(slot.queryByText("Other projects")).toBeNull();
-    const project = slot.getByLabelText("Project") as HTMLSelectElement;
-    expect(Array.from(project.options).map((o) => o.textContent)).toEqual(["BB Plugins (2)", "Graph Studio (1)"]);
-    expect(slot.container.querySelector("[data-crew-count]")!.textContent).toBe("2 crews · 1 stopped");
-    const stoppedCard = await waitFor(() => {
-      const found = slot.container.querySelector('[data-crew-card="halted"]');
-      expect(found).not.toBeNull();
-      return found!;
-    });
-    expect(stoppedCard.querySelector('[data-card-status="stopped"]')).not.toBeNull();
-    expect(stoppedCard.className).toContain("opacity-70");
-    // negative: the running card carries no stopped label
-    expect(slot.container.querySelector('[data-crew-card="trio"] [data-card-status]')).toBeNull();
-    slot.lifecycle.unmount();
-  });
-
-  it("the project switch says how many need you per project; negative: a project without any says nothing", async () => {
-    const app = await loadPluginApp(() => import("../app"));
-    const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15" };
-    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
-      rpc: backend({ listCrews: () => ({ crews: [crew, foreign] }), rowStatuses: () => ({ rows: [], needsYou: 3, byProject: { p2: 3 } }) }),
-    });
-    await slot.findByRole("list", { name: "Crews" });
-    await waitFor(() => {
-      const labels = Array.from((slot.getByLabelText("Project") as HTMLSelectElement).options).map((o) => o.textContent);
-      expect(labels).toEqual(["p1 (1)", "p2 (1) · 3 need you"]);
-    });
-    slot.lifecycle.unmount();
-  });
-
-  it("switching the project shows that project's crews and asks for its overview", async () => {
-    const app = await loadPluginApp(() => import("../app"));
-    const asked: unknown[] = [];
-    const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15" };
-    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
-      rpc: backend({
-        listCrews: () => ({ crews: [crew, foreign] }),
-        projectOverview: (input: never) => (asked.push(input), overview({})),
-      }),
-    });
-    await slot.findByRole("list", { name: "Crews" });
-    fireEvent.change(slot.getByLabelText("Project"), { target: { value: "p2" } });
-    await waitFor(() => expect(within(slot.getByRole("list", { name: "Crews" })).getAllByRole("button").map((b) => b.textContent)).toEqual(["gs15"]));
-    await waitFor(() => expect(asked).toContainEqual({ projectId: "p2" }));
-    slot.lifecycle.unmount();
-  });
-
-  it("negative: with one project and no stopped crew there is no project switch and no stopped count", async () => {
-    const app = await loadPluginApp(() => import("../app"));
-    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend() });
-    await slot.findByRole("list", { name: "Crews" });
-    expect(slot.queryByLabelText("Project")).toBeNull();
-    expect(slot.container.querySelector("[data-crew-count]")!.textContent).toBe("1 crews");
-    await waitFor(() => expect(slot.container.querySelector("[data-crew-card]")).not.toBeNull());
-    expect(slot.container.querySelector("[data-card-status]")).toBeNull();
+    await clickNode(slot, '[data-project-frame="p1"]');
+    const merges = await slot.findByRole("region", { name: "Waiting merges" });
+    expect(within(merges).getAllByRole("button", { name: "Merge" })).toHaveLength(1);
+    fireEvent.click(within(merges).getByRole("button", { name: "Merge" }));
+    await waitFor(() => expect(calls).toContainEqual({ id: "mr_1", action: "approve", note: "" }));
     slot.lifecycle.unmount();
   });
 

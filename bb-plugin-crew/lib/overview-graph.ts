@@ -53,8 +53,11 @@ export type TaskCrewEdge = { kind: "task-crew"; id: string; from: string; to: st
 export type LeadLeadEdge = { kind: "lead-lead"; id: string; from: string; to: string; count: number };
 export type OverviewEdge = TaskCrewEdge | LeadLeadEdge;
 
+/** A project's cluster on the top zoom level: how many crews, how many run, how many wait on you. */
+export type ProjectSummary = OverviewProject & { crewCount: number; taskCount: number; runningCount: number; needsYouCount: number };
+
 export type OverviewGraph = {
-  projects: ReadonlyArray<OverviewProject & { crewCount: number; taskCount: number }>;
+  projects: ReadonlyArray<ProjectSummary>;
   nodes: OverviewNode[];
   edges: OverviewEdge[];
 };
@@ -78,12 +81,12 @@ const DONE_STATES = new Set(["done", "merged", "satisfied"]);
 export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, overviews: ReadonlyMap<string, OverviewSource>): OverviewGraph {
   const nodes: OverviewNode[] = [];
   const edges: OverviewEdge[] = [];
-  const projectSummaries: Array<OverviewProject & { crewCount: number; taskCount: number }> = [];
+  const projectSummaries: ProjectSummary[] = [];
 
   for (const project of projects) {
     const overview = overviews.get(project.id);
     if (!overview) {
-      projectSummaries.push({ ...project, crewCount: 0, taskCount: 0 });
+      projectSummaries.push({ ...project, crewCount: 0, taskCount: 0, runningCount: 0, needsYouCount: 0 });
       continue;
     }
     const taskIds = new Map<string, TaskNode>();
@@ -138,7 +141,13 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
       edges.push({ kind: "lead-lead", id: `${from}<->${to}`, from, to, count: link.count });
     }
 
-    projectSummaries.push({ ...project, crewCount: overview.crews.length, taskCount: taskIds.size });
+    projectSummaries.push({
+      ...project,
+      crewCount: overview.crews.length,
+      taskCount: taskIds.size,
+      runningCount: overview.crews.filter((crew) => crew.status === "running").length,
+      needsYouCount: overview.crews.filter((crew) => crew.needsYou > 0).length,
+    });
   }
 
   return { projects: projectSummaries, nodes, edges };

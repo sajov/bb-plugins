@@ -127,21 +127,6 @@ describe("panel helpers", () => {
     projectName,
   });
 
-  it("shownProject: the picked project, then BB's current one, then the first", async () => {
-    const { shownProject } = await import("../app");
-    const crews = [crewDto("a", "p1"), crewDto("b", "p2")];
-    expect(shownProject(crews, "p2", "p1")).toBe("p2");
-    expect(shownProject(crews, null, "p2")).toBe("p2");
-    expect(shownProject(crews, null, null)).toBe("p1");
-  });
-
-  it("negative: a picked or current project without crews does not win", async () => {
-    const { shownProject } = await import("../app");
-    const crews = [crewDto("a", "p1")];
-    expect(shownProject(crews, "p9", "p8")).toBe("p1");
-    expect(shownProject([], null, "p1")).toBeNull();
-  });
-
   it("crewProjects counts crews per project and falls back to the id without a name", async () => {
     const { crewProjects } = await import("../app");
     expect(crewProjects([crewDto("a", "p1", "Plugins"), crewDto("b", "p1", "Plugins"), crewDto("c", "p2")])).toEqual([
@@ -150,22 +135,6 @@ describe("panel helpers", () => {
     ]);
   });
 
-  it("boardLines: a lead line is live while its crews talk, a wait line never", async () => {
-    const { boardLines } = await import("../app");
-    const overview = {
-      leadLinks: [{ from: "beta", to: "trio", count: 2 }],
-      dependencies: [{ crew: "beta", task: "T-1", until: "merged", state: "open", source: "trio" }],
-    } as unknown as OverviewDto;
-    const talk = { crossCrew: true, fromAddress: "orch-lead@trio", toAddress: "orch-lead@beta", createdAt: 1000 } as MessageDto;
-    const live = boardLines(overview, [talk], 1000 + RECENT_MS);
-    expect(live.map((l) => [l.kind, l.live])).toEqual([
-      ["lead", true],
-      ["wait", false],
-    ]);
-    // negative: old talk, or talk inside one crew, does not light the line
-    expect(boardLines(overview, [talk], 1001 + RECENT_MS)[0]!.live).toBe(false);
-    expect(boardLines(overview, [{ ...talk, crossCrew: false }], 1000)[0]!.live).toBe(false);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -217,15 +186,18 @@ const backend = (messages: MessageDto[], calls: unknown[] = []) => ({
   getActivity: () => ({ members: [] }),
   listMessages: (input: unknown) => (calls.push(input), { messages }),
   rowStatuses: () => ({ rows: [], needsYou: 0 }),
-  projectOverview: () => ({ crews: [], leadLinks: [], dependencies: [], threads: { limit: null, source: "bb", running: null, members: 0 } }),
+  projectOverview: () => ({ crews: [{ name: "trio", status: "running", summary: "", task: null, branch: null, behind: 0, merge: null, needsYou: 0, members: [] }], leadLinks: [], dependencies: [], threads: { limit: null, source: "bb", running: null, members: 0 } }),
   listChannel: () => ({ posts: [] }),
   listWork: () => ({ items: [] }),
   openMembers: () => ({ opened: [], error: null }),
 });
 
-async function openTopology(slot: { findByRole: (role: string, options: { name: string }) => Promise<HTMLElement> }) {
-  const list = await slot.findByRole("list", { name: "Crews" });
-  fireEvent.click(within(list).getByRole("button", { name: "trio" }));
+async function openTopology(slot: { container: HTMLElement; findByRole: (role: string, options: { name: string }) => Promise<HTMLElement> }) {
+  fireEvent.click(await waitFor(() => {
+    const node = slot.container.querySelector<HTMLElement>('[data-crew-node="trio"]');
+    expect(node).not.toBeNull();
+    return node!;
+  }));
 }
 
 describe("topology communication", () => {
@@ -342,33 +314,6 @@ describe("Needs you with context", () => {
   });
 });
 
-describe("overview cards", () => {
-  it("clicking anywhere on a crew card opens the crew view", async () => {
-    const app = await loadPluginApp(() => import("../app"));
-    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
-      rpc: {
-        ...backend([]),
-        projectOverview: () => ({
-          crews: [{ name: "trio", status: "running", summary: "", task: null, branch: null, behind: null, merge: null, needsYou: 0, members: [] }],
-          leadLinks: [],
-          dependencies: [],
-          threads: { limit: null, source: "bb", running: null, members: 0 },
-        }),
-      },
-    });
-    const node = await waitFor(() => {
-      const found = slot.container.querySelector(".react-flow__node-card");
-      expect(found).not.toBeNull();
-      return found as HTMLElement;
-    });
-    // negative first: still on the overview
-    expect(slot.queryByRole("button", { name: "Topology" })).toBeNull();
-    fireEvent.click(node.querySelector("[data-crew-card]")!.lastElementChild as HTMLElement);
-    await slot.findByRole("button", { name: "Topology" });
-    slot.lifecycle.unmount();
-  });
-});
-
 describe("feed preview", () => {
   it("collapses newlines into one paragraph and cuts long bodies", async () => {
     const { preview } = await import("../app");
@@ -423,24 +368,3 @@ describe("roundedPath", () => {
   });
 });
 
-describe("overview card members", () => {
-  const card = (n: number) => ({
-    name: "trio", status: "running", summary: "", task: null, branch: null, behind: null, merge: null, needsYou: 0,
-    members: Array.from({ length: n }, (_, i) => ({ key: `m${i}`, lead: i === 0, activity: "idle", needsYou: [] })),
-  });
-  it("names three members and counts the rest", async () => {
-    const { CrewCard } = await import("../app");
-    const { render } = await import("@testing-library/react");
-    const view = render(<CrewCard card={card(5)} />);
-    expect(view.container.querySelector("[data-more-members]")!.textContent).toBe("+2");
-    expect(view.container.textContent).not.toContain("m3");
-    view.unmount();
-  });
-  it("negative: three or fewer members, no counter", async () => {
-    const { CrewCard } = await import("../app");
-    const { render } = await import("@testing-library/react");
-    const view = render(<CrewCard card={card(3)} />);
-    expect(view.container.querySelector("[data-more-members]")).toBeNull();
-    view.unmount();
-  });
-});

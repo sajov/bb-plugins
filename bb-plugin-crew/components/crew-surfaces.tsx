@@ -7,6 +7,9 @@
 //   analogous to Graph Studio's `::graph-run`.
 // - ConfirmInteraction: `slots.pendingInteraction` renderer "crew-confirm"
 //   for team changes that need the human (removing a member, full).
+// - CrewPanelHeader: the thread side panel's chrome (BBP-79) — crew picker,
+//   Apply / Stop / Edit / + New, and the CLI hint — drawn like Graph
+//   Studio's Library card so the two side panels read as one family.
 import { useCallback, useEffect, useState } from "react";
 import { useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginMessageDirectiveProps, PluginPendingInteractionProps, PluginThreadHeaderActionProps } from "@get-bb/plugin-sdk/app";
@@ -14,6 +17,7 @@ import type { ActivityDto, CrewDto, rpcContract } from "../server";
 import { activityTone } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { cn } from "@/lib/utils";
 import { CREW_ICON } from "./crew-icon";
 
 const ACTIVITY_CHANNEL = "crew-activity";
@@ -68,23 +72,23 @@ export function MemberBadge({ threadId, isCompactViewport }: Pick<PluginThreadHe
         )}
       </Button>
       {open ? (
-        <div role="menu" aria-label="Member actions" className="absolute right-0 top-8 z-50 flex w-52 flex-col rounded-lg border border-[#1f1f22] bg-[#0b0b0c] p-1 text-xs shadow-lg">
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => run("Reset", () => rpc.call("reset", { ...ref, mode: "clear" }))}>
+        <div role="menu" aria-label="Member actions" className="absolute right-0 top-8 z-50 flex w-52 flex-col rounded-lg border border-border bg-popover text-popover-foreground p-1 text-xs shadow-lg">
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => run("Reset", () => rpc.call("reset", { ...ref, mode: "clear" }))}>
             Reset (clear context)
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => run("Reset", () => rpc.call("reset", { ...ref, mode: "new" }))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => run("Reset", () => rpc.call("reset", { ...ref, mode: "new" }))}>
             Reset (new thread)
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => run("Handover", () => rpc.call("handover", ref))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => run("Handover", () => rpc.call("handover", ref))}>
             Handover
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left text-[#ef6b6b] hover:bg-[#1a1a1c]" onClick={() => run("Detach", () => rpc.call("detach", ref))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left text-destructive hover:bg-muted" onClick={() => run("Detach", () => rpc.call("detach", ref))}>
             Detach from crew
           </button>
         </div>
       ) : null}
       {note ? (
-        <div role="status" className="absolute right-0 top-8 z-40 w-60 rounded-md border border-[#1f1f22] bg-[#0b0b0c] p-2 text-[11px]" onClick={() => setNote(null)}>
+        <div role="status" className="absolute right-0 top-8 z-40 w-60 rounded-md border border-border bg-popover text-popover-foreground p-2 text-[11px]" onClick={() => setNote(null)}>
           {note}
         </div>
       ) : null}
@@ -114,14 +118,14 @@ export function CrewDirectiveCard({ attributes, message }: Pick<PluginMessageDir
   if (crew === null) return <p className="text-xs text-muted-foreground">There is no crew “{name}” in this project.</p>;
   const needs = views.filter((view) => view.needsYou.length > 0).length;
   return (
-    <div data-crew-directive={crew.name} className="my-2 flex flex-col gap-2 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3 text-xs">
+    <div data-crew-directive={crew.name} className="my-2 flex flex-col gap-2 rounded-xl border border-border bg-card text-card-foreground p-3 text-xs">
       <div className="flex items-center gap-2">
         <Icon name={CREW_ICON} className="size-4" />
         <span className="text-sm font-semibold">{crew.name}</span>
         <span className="text-muted-foreground">
           {crew.status} · {views.length} members · file v{crew.fileVersion}
         </span>
-        {needs > 0 ? <span className="ml-auto rounded-full border border-[#3a1f22] bg-[#1c1011] px-2 text-[#ef6b6b]">{needs} Needs you</span> : null}
+        {needs > 0 ? <span className="ml-auto rounded-full border border-destructive/40 bg-destructive/10 px-2 text-destructive">{needs} Needs you</span> : null}
       </div>
       <ul className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Members">
         {views.map((view) => (
@@ -158,8 +162,8 @@ export function ConfirmInteraction({ interaction, submit, cancel }: PluginPendin
   const detail = typeof payload.detail === "string" ? payload.detail : "";
   const danger = payload.kind === "full-permissions" || payload.kind === "remove-member";
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3 text-sm" aria-label="Crew confirmation">
-      <strong className={danger ? "text-[#ef6b6b]" : undefined}>{title}</strong>
+    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card text-card-foreground p-3 text-sm" aria-label="Crew confirmation">
+      <strong className={danger ? "text-destructive" : undefined}>{title}</strong>
       {detail ? <p className="m-0 text-xs text-muted-foreground">{detail}</p> : null}
       <div className="flex gap-2">
         <Button size="sm" variant={danger ? "destructive" : "default"} onClick={() => void submit({ confirmed: true })}>
@@ -172,6 +176,93 @@ export function ConfirmInteraction({ interaction, submit, cancel }: PluginPendin
           Cancel
         </Button>
       </div>
+    </div>
+  );
+}
+
+type CopyState = "idle" | "copied" | "failed";
+const COPY_LABEL: Record<CopyState, string> = { idle: "Copy", copied: "Copied", failed: "Did not work" };
+
+/** Graph Studio's `CopyCommand`: the text on screen and the text on the clipboard are the same string by construction. */
+export function CopyCommand({ command, className }: { command: string; className?: string }) {
+  const [state, setState] = useState<CopyState>("idle");
+  useEffect(() => setState("idle"), [command]);
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => setState("idle"), 2000);
+    return () => clearTimeout(timer);
+  }, [state]);
+  const copy = () => {
+    const clipboard = navigator.clipboard as Clipboard | undefined;
+    if (!clipboard) return setState("failed");
+    void clipboard.writeText(command).then(() => setState("copied"), () => setState("failed"));
+  };
+  return (
+    <div className={cn("flex items-center gap-1.5", className)}>
+      <code className="min-w-0 flex-1 select-all overflow-x-auto whitespace-nowrap rounded-md bg-muted px-2 py-1 font-mono text-[11px]">{command}</code>
+      <Button size="sm" variant="ghost" className="h-6 shrink-0 px-1.5 text-[11px]" onClick={copy} aria-label={`Copy command: ${command}`}>
+        <Icon name={state === "copied" ? "Check" : "Copy"} className="size-3.5" />
+        {COPY_LABEL[state]}
+      </Button>
+    </div>
+  );
+}
+
+/** The thread side panel's chrome (BBP-79, BBP-70 req 1): crew picker, Apply / Stop / Edit / + New, CLI hint. */
+export function CrewPanelHeader({
+  crews,
+  crew,
+  memberCount,
+  busy,
+  onPick,
+  onApply,
+  onStop,
+  onEdit,
+  onNew,
+}: {
+  crews: CrewDto[];
+  crew: CrewDto;
+  memberCount: number;
+  busy: boolean;
+  onPick: (crewId: string) => void;
+  onApply: () => void;
+  onStop: () => void;
+  onEdit: () => void;
+  onNew: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-sm font-medium">Which crew?</p>
+      <select
+        aria-label="Crew"
+        className="mt-2 h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+        value={crew.id}
+        onChange={(event) => onPick(event.target.value)}
+      >
+        {crews.map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.name} · {entry.id === crew.id ? `${memberCount} members` : entry.status}
+            {entry.id === crew.id ? ` · ${entry.status}` : ""}
+          </option>
+        ))}
+      </select>
+      <div className="mt-2.5 flex gap-2">
+        <Button size="sm" className="flex-1" disabled={busy} onClick={onApply}>
+          Apply
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={onStop}>
+          Stop
+        </Button>
+        <Button size="sm" variant="outline" onClick={onEdit}>
+          Edit
+        </Button>
+        <Button size="sm" variant="outline" onClick={onNew}>
+          <Icon name="Plus" className="size-3.5" />
+          New
+        </Button>
+      </div>
+      <p className="mt-3 text-[11px] text-muted-foreground">Or on the command line:</p>
+      <CopyCommand command={`bb crew apply ${crew.name}`} className="mt-1" />
     </div>
   );
 }
