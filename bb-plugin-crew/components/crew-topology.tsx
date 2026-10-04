@@ -109,10 +109,14 @@ function MemberNode({ data }: NodeProps<Node<MemberNodeData>>) {
         <span className="relative truncate text-xs font-medium text-foreground" title={member.address}>
           {member.key}
         </span>
-        {/* Status first, then shift, then model, as before — the line the tests and the eye read. */}
+        {/* Status first, then shift, then model, as before — the line the tests and the eye read.
+            BBP-79: the model reads as a chip (mockup 1), not bare text in the sentence. */}
         <div data-member-meta className="relative line-clamp-2 break-words text-[10px] leading-[14px] text-muted-foreground">
           {activityLabel(view, member.thread)}
-          {member.shift !== null ? ` · Shift ${member.shift}` : ""} · {shortModel(member.model)}
+          {member.shift !== null ? ` · Shift ${member.shift}` : ""} ·{" "}
+          <span className="inline-block rounded bg-muted px-1 py-px align-middle text-[9px] font-medium leading-[14px] text-foreground/80">
+            {shortModel(member.model)}
+          </span>
         </div>
       </div>
       <Handle type="source" position={Position.Bottom} isConnectable={false} className="!pointer-events-none !opacity-0" />

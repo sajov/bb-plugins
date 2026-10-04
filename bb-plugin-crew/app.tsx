@@ -30,7 +30,7 @@ import type { PluginComposerThreadRowStatus } from "@get-bb/plugin-sdk/app";
 import type { ActivityDto, ChannelDto, CrewDto, MemberDto, MergeDto, MessageDto, OverviewDto, rpcContract, WorkDto } from "./server";
 import { CrewFileEditor } from "./components/crew-file-editor";
 import { CREW_ICON, CrewTeam } from "./components/crew-icon";
-import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, MemberBadge } from "./components/crew-surfaces";
+import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, CrewPanelHeader, MemberBadge } from "./components/crew-surfaces";
 import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
 import { CrewOverviewFullscreen } from "./components/crew-overview-fullscreen";
 import { CrewEditFullscreen } from "./components/crew-edit-fullscreen";
@@ -1056,6 +1056,7 @@ function PanelScroll({ children }: { children: ReactNode }) {
 
 export function CrewDetailPanel({ threadId, params }: { threadId: string; params: unknown }) {
   const rpc = useRpc<typeof rpcContract>();
+  const navigate = useBbNavigate();
   const direct = useMemo(() => crewRefFromParams(params), [params]);
   // No params (opened from the header or palette, not a directive): the panel's own thread names its crew.
   const [ref, setRef] = useState<{ crew: string; projectId: string } | null | undefined>(direct ?? undefined);
@@ -1066,11 +1067,16 @@ export function CrewDetailPanel({ threadId, params }: { threadId: string; params
       () => setRef(null),
     );
   }, [rpc, threadId, direct]);
+  const [crews, setCrews] = useState<CrewDto[]>([]);
   const [crew, setCrew] = useState<CrewDto | null | undefined>(undefined);
   const [members, setMembers] = useState<MemberDto[]>([]);
   const [links, setLinks] = useState<{ from: string; to: string; kind: string }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [editYaml, setEditYaml] = useState<string | null>(null);
   const refetch = useCallback(() => {
     if (!ref) return;
+    rpc.call("listCrews", { projectId: ref.projectId }).then((result) => setCrews(result.crews), () => undefined);
     rpc.call("getCrew", { projectId: ref.projectId, name: ref.crew }).then(
       (result) => {
         setCrew(result.crew);
@@ -1088,8 +1094,67 @@ export function CrewDetailPanel({ threadId, params }: { threadId: string; params
   if (ref === null) return <PanelScroll><p className="text-xs text-muted-foreground">This thread has no crew.</p></PanelScroll>;
   if (crew === undefined) return <PanelScroll><p className="text-xs text-muted-foreground">Crew {ref.crew}: loading…</p></PanelScroll>;
   if (crew === null) return <PanelScroll><p className="text-xs text-muted-foreground">There is no crew “{ref.crew}” in this project.</p></PanelScroll>;
+
+  const act = async (run: () => Promise<{ error?: string | null } | unknown>) => {
+    setBusy(true);
+    try {
+      const result = (await run()) as { error?: string | null };
+      setNote(result && typeof result === "object" && result.error ? result.error : null);
+    } catch (cause) {
+      setNote(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+    refetch();
+  };
+
   return (
     <PanelScroll>
+      <CrewPanelHeader
+        crews={crews}
+        crew={crew}
+        memberCount={members.length}
+        busy={busy}
+        onPick={(crewId) => {
+          const picked = crews.find((entry) => entry.id === crewId);
+          if (picked) setRef({ crew: picked.name, projectId: picked.projectId });
+        }}
+        onApply={() => void act(() => rpc.call("apply", { projectId: ref.projectId, ref: ref.crew }))}
+        onStop={() => void act(() => rpc.call("stop", { projectId: ref.projectId, name: ref.crew, archive: false }))}
+        onEdit={() =>
+          void rpc.call("getCrewFile", { projectId: ref.projectId, name: ref.crew }).then(
+            (result) => setEditYaml(result.yaml ?? ""),
+            (cause: unknown) => setNote(cause instanceof Error ? cause.message : String(cause)),
+          )
+        }
+        onNew={() => navigate.toPluginPanel("crews")}
+      />
+      {editYaml !== null ? (
+        <CrewEditFullscreen
+          title={`${crew.projectName ?? crew.projectId} — ${crew.name}`}
+          initialYaml={editYaml}
+          statuses={Object.fromEntries(members.flatMap((m) => (m.status ? [[m.key, m.status]] : [])))}
+          onSave={async (text) => {
+            const result = await rpc.call("saveCrewFile", { projectId: ref.projectId, yaml: text });
+            const errors = result.problems.filter((problem) => problem.level === "error");
+            if (errors.length > 0 || !result.crew) return errors.map((problem) => problem.message).join("; ") || "The crew file was not saved.";
+            refetch();
+            return null;
+          }}
+          onReload={async () => (await rpc.call("getCrewFile", { projectId: ref.projectId, name: ref.crew })).yaml ?? ""}
+          onOverview={() => {
+            setEditYaml(null);
+            navigate.toPluginPanel("crews");
+          }}
+          onClose={() => setEditYaml(null)}
+        />
+      ) : null}
+      {note ? (
+        <p role="status" className="mt-2 text-xs text-muted-foreground">
+          {note}
+        </p>
+      ) : null}
+      <p className="mb-1.5 mt-4 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Preview</p>
       <TopologyTab crew={crew} members={members} links={links} onChanged={refetch} />
     </PanelScroll>
   );

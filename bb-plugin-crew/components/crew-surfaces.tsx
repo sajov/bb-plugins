@@ -7,6 +7,9 @@
 //   analogous to Graph Studio's `::graph-run`.
 // - ConfirmInteraction: `slots.pendingInteraction` renderer "crew-confirm"
 //   for team changes that need the human (removing a member, full).
+// - CrewPanelHeader: the thread side panel's chrome (BBP-79) — crew picker,
+//   Apply / Stop / Edit / + New, and the CLI hint — drawn like Graph
+//   Studio's Library card so the two side panels read as one family.
 import { useCallback, useEffect, useState } from "react";
 import { useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginMessageDirectiveProps, PluginPendingInteractionProps, PluginThreadHeaderActionProps } from "@get-bb/plugin-sdk/app";
@@ -14,6 +17,7 @@ import type { ActivityDto, CrewDto, rpcContract } from "../server";
 import { activityTone } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { cn } from "@/lib/utils";
 import { CREW_ICON } from "./crew-icon";
 
 const ACTIVITY_CHANNEL = "crew-activity";
@@ -172,6 +176,93 @@ export function ConfirmInteraction({ interaction, submit, cancel }: PluginPendin
           Cancel
         </Button>
       </div>
+    </div>
+  );
+}
+
+type CopyState = "idle" | "copied" | "failed";
+const COPY_LABEL: Record<CopyState, string> = { idle: "Copy", copied: "Copied", failed: "Did not work" };
+
+/** Graph Studio's `CopyCommand`: the text on screen and the text on the clipboard are the same string by construction. */
+export function CopyCommand({ command, className }: { command: string; className?: string }) {
+  const [state, setState] = useState<CopyState>("idle");
+  useEffect(() => setState("idle"), [command]);
+  useEffect(() => {
+    if (state === "idle") return;
+    const timer = setTimeout(() => setState("idle"), 2000);
+    return () => clearTimeout(timer);
+  }, [state]);
+  const copy = () => {
+    const clipboard = navigator.clipboard as Clipboard | undefined;
+    if (!clipboard) return setState("failed");
+    void clipboard.writeText(command).then(() => setState("copied"), () => setState("failed"));
+  };
+  return (
+    <div className={cn("flex items-center gap-1.5", className)}>
+      <code className="min-w-0 flex-1 select-all overflow-x-auto whitespace-nowrap rounded-md bg-muted px-2 py-1 font-mono text-[11px]">{command}</code>
+      <Button size="sm" variant="ghost" className="h-6 shrink-0 px-1.5 text-[11px]" onClick={copy} aria-label={`Copy command: ${command}`}>
+        <Icon name={state === "copied" ? "Check" : "Copy"} className="size-3.5" />
+        {COPY_LABEL[state]}
+      </Button>
+    </div>
+  );
+}
+
+/** The thread side panel's chrome (BBP-79, BBP-70 req 1): crew picker, Apply / Stop / Edit / + New, CLI hint. */
+export function CrewPanelHeader({
+  crews,
+  crew,
+  memberCount,
+  busy,
+  onPick,
+  onApply,
+  onStop,
+  onEdit,
+  onNew,
+}: {
+  crews: CrewDto[];
+  crew: CrewDto;
+  memberCount: number;
+  busy: boolean;
+  onPick: (crewId: string) => void;
+  onApply: () => void;
+  onStop: () => void;
+  onEdit: () => void;
+  onNew: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-sm font-medium">Which crew?</p>
+      <select
+        aria-label="Crew"
+        className="mt-2 h-8 w-full rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+        value={crew.id}
+        onChange={(event) => onPick(event.target.value)}
+      >
+        {crews.map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.name} · {entry.id === crew.id ? `${memberCount} members` : entry.status}
+            {entry.id === crew.id ? ` · ${entry.status}` : ""}
+          </option>
+        ))}
+      </select>
+      <div className="mt-2.5 flex gap-2">
+        <Button size="sm" className="flex-1" disabled={busy} onClick={onApply}>
+          Apply
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={onStop}>
+          Stop
+        </Button>
+        <Button size="sm" variant="outline" onClick={onEdit}>
+          Edit
+        </Button>
+        <Button size="sm" variant="outline" onClick={onNew}>
+          <Icon name="Plus" className="size-3.5" />
+          New
+        </Button>
+      </div>
+      <p className="mt-3 text-[11px] text-muted-foreground">Or on the command line:</p>
+      <CopyCommand command={`bb crew apply ${crew.name}`} className="mt-1" />
     </div>
   );
 }
