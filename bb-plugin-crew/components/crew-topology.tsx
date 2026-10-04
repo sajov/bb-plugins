@@ -523,11 +523,11 @@ function ResetSplit({ disabled, onAction }: { disabled: boolean; onAction: (acti
         ▾
       </Button>
       {open && !disabled ? (
-        <div role="menu" className="absolute right-0 top-8 z-10 flex min-w-[180px] flex-col rounded-lg border border-[#1f1f22] bg-[#0b0b0c] p-1 text-xs shadow-lg">
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => (setOpen(false), onAction("reset-clear"))}>
+        <div role="menu" className="absolute right-0 top-8 z-10 flex min-w-[180px] flex-col rounded-lg border border-border bg-popover text-popover-foreground p-1 text-xs shadow-lg">
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => (setOpen(false), onAction("reset-clear"))}>
             Reset (clear context)
           </button>
-          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-[#1a1a1c]" onClick={() => (setOpen(false), onAction("reset-new"))}>
+          <button type="button" role="menuitem" className="rounded px-2 py-1.5 text-left hover:bg-muted" onClick={() => (setOpen(false), onAction("reset-new"))}>
             Reset (new thread)
           </button>
         </div>

@@ -452,13 +452,13 @@ function TableAndFeed({ crew, members }: { crew: CrewDto; members: MemberDto[] }
           {error}
         </p>
       ) : null}
-      <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+      <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
         <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Members</h4>
         <MembersTable members={members} activity={activity} onReply={(to) => setReply({ to, replyTo: null })} />
       </section>
       <WorkSection crew={crew} />
       <ChannelSection crew={crew} />
-      <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+      <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
         <header className="mb-2 flex items-center gap-3">
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Feed</h4>
           <span className="flex-1" />
@@ -653,7 +653,7 @@ export function ChannelSection({ crew }: { crew: CrewDto }) {
   useEffect(refetch, [refetch]);
   useRealtime(ACTIVITY_CHANNEL, refetch);
   return (
-    <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+    <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Channel</h4>
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
       {posts.length === 0 ? (
@@ -705,7 +705,7 @@ export function WorkSection({ crew }: { crew: CrewDto }) {
   useEffect(refetch, [refetch]);
   useRealtime(ACTIVITY_CHANNEL, refetch);
   return (
-    <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4">
+    <section className="rounded-xl border border-border bg-card text-card-foreground p-4">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Open work</h4>
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No open work items.</p>
@@ -879,7 +879,7 @@ export function TopologyTab({
       </div>
       <TopologyLegend kinds={[...new Set(links.map((link) => link.kind))]} messages={flows.length > 0} />
       <CommsStrip messages={strip} crewName={crew.name} selectedId={messageId} onSelect={setMessageId} />
-      <section className="rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-4" aria-label="Crew communication">
+      <section className="rounded-xl border border-border bg-card text-card-foreground p-4" aria-label="Crew communication">
         <header className="mb-2 flex items-center gap-3">
           <h4 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Communication</h4>
           <span className="text-[11px] text-muted-foreground">{messages.length} messages inside {crew.name}</span>
@@ -1040,12 +1040,12 @@ function DeleteCrewForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string
   const [busy, setBusy] = useState(false);
   const stopped = crew.status === "stopped";
   return (
-    <section aria-label="Delete crew" className="mb-3 rounded-xl border border-[#5a1f1f] bg-[#0b0b0c] p-3">
-      <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-[#ef6b6b]">Delete crew {crew.name} — removes all of its data</h4>
+    <section aria-label="Delete crew" className="mb-3 rounded-xl border border-destructive/40 bg-card text-card-foreground p-3">
+      <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-destructive">Delete crew {crew.name} — removes all of its data</h4>
       {stopped ? (
         <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
           Member threads
-          <select aria-label="Member threads" className="w-56 rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-xs text-foreground" value={threads} onChange={(e) => setThreads(e.target.value as typeof threads)}>
+          <select aria-label="Member threads" className="w-56 rounded-md border border-border bg-transparent px-1.5 py-1 text-xs text-foreground" value={threads} onChange={(e) => setThreads(e.target.value as typeof threads)}>
             <option value="archive">archive (default)</option>
             <option value="delete">delete, sub-threads included</option>
             <option value="keep">keep, detached from the crew</option>
@@ -1058,12 +1058,12 @@ function DeleteCrewForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string
       )}
       {blockers.length > 0 ? (
         <>
-          <ul aria-label="Delete blockers" className="mt-2 list-disc pl-4 text-xs text-[#ef6b6b]">
+          <ul aria-label="Delete blockers" className="mt-2 list-disc pl-4 text-xs text-destructive">
             {blockers.map((line) => (
               <li key={line}>{line}</li>
             ))}
           </ul>
-          <label className="mt-1 flex items-center gap-1.5 text-xs text-[#ef6b6b]">
+          <label className="mt-1 flex items-center gap-1.5 text-xs text-destructive">
             <input type="checkbox" aria-label="Delete anyway" checked={force} onChange={(e) => setForce(e.target.checked)} /> Delete anyway
           </label>
         </>
@@ -1108,11 +1108,11 @@ function AddMemberForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string 
   const input = (key: keyof typeof values, label: string) => (
     <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
       {label}
-      <input aria-label={label} className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-xs text-foreground" value={values[key]} onChange={set(key)} />
+      <input aria-label={label} className="rounded-md border border-border bg-transparent px-1.5 py-1 text-xs text-foreground" value={values[key]} onChange={set(key)} />
     </label>
   );
   return (
-    <section aria-label="Add member" className="mb-3 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3">
+    <section aria-label="Add member" className="mb-3 rounded-xl border border-border bg-card text-card-foreground p-3">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Add member — changes the crew file, then applies</h4>
       <div className="grid grid-cols-3 gap-2">
         {input("group", "Group")}
@@ -1120,7 +1120,7 @@ function AddMemberForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string 
         {input("role", "Role")}
         <label className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
           Permissions
-          <select aria-label="Permissions" className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1 text-xs text-foreground" value={values.permissions} onChange={set("permissions")}>
+          <select aria-label="Permissions" className="rounded-md border border-border bg-transparent px-1.5 py-1 text-xs text-foreground" value={values.permissions} onChange={set("permissions")}>
             <option value="">(inherited)</option>
             {["ask", "accept-edits", "auto", "full"].map((p) => (
               <option key={p} value={p}>
@@ -1143,7 +1143,7 @@ function AddMemberForm({ crew, onDone }: { crew: CrewDto; onDone: (text: string 
         />
       </div>
       {values.permissions === "full" ? (
-        <label className="mt-2 flex items-center gap-1.5 text-xs text-[#ef6b6b]">
+        <label className="mt-2 flex items-center gap-1.5 text-xs text-destructive">
           <input type="checkbox" aria-label="Confirm full permissions" checked={confirmFull} onChange={(e) => setConfirmFull(e.target.checked)} /> I confirm permissions: full
         </label>
       ) : null}
@@ -1197,7 +1197,7 @@ function AttachForm({ crew, members, onDone }: { crew: CrewDto; members: MemberD
     rpc.call("attachCandidates", { projectId: crew.projectId }).then((r) => setThreads(r.threads), () => setThreads([]));
   }, [rpc, crew.projectId]);
   return (
-    <section aria-label="Attach thread" className="mb-3 rounded-xl border border-[#1f1f22] bg-[#0b0b0c] p-3 text-xs">
+    <section aria-label="Attach thread" className="mb-3 rounded-xl border border-border bg-card text-card-foreground p-3 text-xs">
       <h4 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Attach an existing thread — no new thread, kickoff brief as a message</h4>
       {threads === null ? (
         <p className="text-muted-foreground">Loading unassigned threads…</p>
@@ -1217,7 +1217,7 @@ function AttachForm({ crew, members, onDone }: { crew: CrewDto; members: MemberD
       )}
       <div className="flex items-center gap-2">
         as
-        <select aria-label="Attach as member" className="rounded-md border border-[#1f1f22] bg-transparent px-1.5 py-1" value={member} onChange={(e) => setMember(e.target.value)}>
+        <select aria-label="Attach as member" className="rounded-md border border-border bg-transparent px-1.5 py-1" value={member} onChange={(e) => setMember(e.target.value)}>
           {members.map((m) => (
             <option key={m.key} value={m.key}>
               {m.address}
