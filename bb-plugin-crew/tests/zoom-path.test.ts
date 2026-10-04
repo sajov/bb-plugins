@@ -81,3 +81,22 @@ describe("project clusters (BBP-83)", () => {
     expect(two.frames[0]!.y).toBe(two.frames[1]!.y);
   });
 });
+
+describe("expanded crew in the layout (BBP-83)", () => {
+  it("a crew given a larger size pushes its row neighbour right and the next row down", () => {
+    const graph = buildOverviewGraph([{ id: "p1", name: "P1" }], new Map([["p1", crews(MAX_CREWS_PER_ROW + 1)]]));
+    const visible = new Set(graph.nodes.map((node) => node.id));
+    const plain = layoutOverview(graph, visible);
+    const big = layoutOverview(graph, visible, new Map([[crewNodeId("p1", "c0"), { width: 900, height: 600 }]]));
+    const at = (layout: typeof plain, name: string) => layout.placed.find((placed) => placed.id === crewNodeId("p1", name))!;
+    expect(at(big, "c0")).toMatchObject({ width: 900, height: 600 });
+    expect(at(big, "c1").x).toBeGreaterThan(at(plain, "c1").x);
+    expect(at(big, `c${MAX_CREWS_PER_ROW}`).y).toBeGreaterThan(at(plain, `c${MAX_CREWS_PER_ROW}`).y);
+  });
+
+  it("negative: without sizes the layout is unchanged", () => {
+    const graph = buildOverviewGraph([{ id: "p1", name: "P1" }], new Map([["p1", crews(4)]]));
+    const visible = new Set(graph.nodes.map((node) => node.id));
+    expect(layoutOverview(graph, visible, new Map())).toEqual(layoutOverview(graph, visible));
+  });
+});

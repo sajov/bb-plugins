@@ -134,12 +134,14 @@ describe("Crews panel", () => {
       },
     });
     await openCrew(slot);
-    await slot.findByText("orch-lead@trio");
-    expect(slot.getByText("file v2", { exact: false })).toBeTruthy();
-    expect(slot.getAllByText("lead")).toHaveLength(1);
-    expect(slot.getAllByText("full")).toHaveLength(1);
-    expect(slot.getByText("archived")).toBeTruthy();
-    expect(slot.getByText("3")).toBeTruthy();
+    // The canvas draws the members too; the table lives in the crew panel.
+    const panel = within(slot.getByRole("complementary", { name: "Crew details" }));
+    await panel.findByText("orch-lead@trio");
+    expect(panel.getByText("file v2", { exact: false })).toBeTruthy();
+    expect(panel.getAllByText("lead")).toHaveLength(1);
+    expect(panel.getAllByText("full")).toHaveLength(1);
+    expect(panel.getByText("archived")).toBeTruthy();
+    expect(panel.getByText("3")).toBeTruthy();
     slot.lifecycle.unmount();
   });
 
@@ -429,22 +431,73 @@ describe("Crews zoom canvas (BBP-83)", () => {
     slot.lifecycle.unmount();
   });
 
-  it("level 2 and 3: a crew opens its topology, a member is the agent level; Esc climbs one level at a time", async () => {
+  it("level 2 and 3 stay on the canvas: the crew opens into its members, a member into its agent card; Esc climbs one level at a time", async () => {
     const app = await loadPluginApp(() => import("../app"));
-    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: twoProjects() });
+    const calls: unknown[] = [];
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
+      rpc: twoProjects({
+        getCrew: () => ({ crew, members: [member({ actualModel: "opus" })], links: [] }),
+        getActivity: () => ({ members: [view({ key: "dev-impl", context: 42, openWork: 2, held: 1 })] }),
+        listWork: () => ({
+          items: [
+            { id: "wi_9", title: "Fix the zoom", body: "", owner: "dev-impl@trio", state: "claimed", tier: "p1", dueAt: null, taskKey: null, closureNote: null, rung: 0 },
+            { id: "wi_8", title: "Someone else's", body: "", owner: "dev-review@trio", state: "claimed", tier: "p1", dueAt: null, taskKey: null, closureNote: null, rung: 0 },
+          ],
+        }),
+        handover: (input: never) => (calls.push(input), { error: null }),
+      }),
+    });
     await clickNode(slot, '[data-project-frame="p1"]');
     await clickNode(slot, '[data-crew-node="trio"]');
     await waitFor(() => expect(crumbs(slot)).toEqual(["All", "BB Plugins", "trio"]));
-    expect(slot.getByRole("button", { name: "Edit" })).toBeTruthy();
+    const canvas = slot.getByLabelText("Crews canvas");
+    // The members are drawn on the same canvas, inside the crew.
+    await waitFor(() => expect(canvas.querySelector('[data-member-node="dev-impl"]')).not.toBeNull());
+    expect(canvas.querySelector("[data-agent-node]")).toBeNull();
+    const panel = slot.getByRole("complementary", { name: "Crew details" });
+    expect(within(panel).getByRole("button", { name: "Edit" })).toBeTruthy();
     await clickNode(slot, '[data-member-node="dev-impl"]');
     await waitFor(() => expect(crumbs(slot)).toEqual(["All", "BB Plugins", "trio", "dev-impl"]));
+    const agent = await waitFor(() => {
+      const found = canvas.querySelector<HTMLElement>('[data-agent-node="dev-impl"]');
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(agent.textContent).toContain("opus");
+    expect(agent.textContent).toContain("42%");
+    expect(agent.textContent).toContain("Fix the zoom");
+    // negative: another member's work item is not this agent's
+    expect(agent.textContent).not.toContain("Someone else's");
+    fireEvent.click(within(agent).getByRole("button", { name: "Handover" }));
+    await waitFor(() => expect(calls).toContainEqual({ projectId: "p1", name: "trio", member: "dev-impl" }));
+    expect(within(agent).getByRole("button", { name: "Open" })).toBeTruthy();
+    expect(within(agent).getByRole("button", { name: "Reset" })).toBeTruthy();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(crumbs(slot)).toEqual(["All", "BB Plugins", "trio"]));
+    expect(canvas.querySelector("[data-agent-node]")).toBeNull();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(crumbs(slot)).toEqual(["All", "BB Plugins"]));
-    // A breadcrumb step jumps straight up.
+    expect(canvas.querySelector("[data-member-node]")).toBeNull();
     fireEvent.click(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "All" }));
     await waitFor(() => expect(crumbs(slot)).toEqual(["All"]));
+    slot.lifecycle.unmount();
+  });
+
+  it("level 0 keeps the project filter with counts and the search; negative: not on level 1", async () => {
+    const app = await loadPluginApp(() => import("../app"));
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: twoProjects() });
+    await waitFor(() => expect(slot.container.querySelectorAll("[data-project-frame]")).toHaveLength(2));
+    const chips = slot.getByRole("group", { name: "Projects" });
+    expect(within(chips).getAllByRole("button").map((b) => b.textContent)).toEqual(["All", "BB Plugins1", "Graph Studio1"]);
+    fireEvent.click(within(chips).getByRole("button", { name: /Graph Studio/ }));
+    await waitFor(() => expect(slot.container.querySelector('[data-project-frame="p2"]')).toBeNull());
+    fireEvent.click(within(chips).getByRole("button", { name: "All" }));
+    await waitFor(() => expect(slot.container.querySelector('[data-project-frame="p2"]')).not.toBeNull());
+    fireEvent.change(slot.getByRole("searchbox", { name: "Search crews, members and tasks" }), { target: { value: "beta" } });
+    await waitFor(() => expect(slot.container.querySelector('[data-crew-node="trio"]')!.closest("[data-dim]")).not.toBeNull());
+    expect(slot.container.querySelector('[data-crew-node="beta"]')!.closest("[data-dim]")).toBeNull();
+    await clickNode(slot, '[data-project-frame="p1"]');
+    await waitFor(() => expect(slot.queryByRole("group", { name: "Projects" })).toBeNull());
     slot.lifecycle.unmount();
   });
 

@@ -33,6 +33,8 @@ import { CREW_ICON, CrewTeam } from "./components/crew-icon";
 import { ConfirmInteraction, CREW_NAME, CrewDirectiveCard, CrewPanelHeader, MemberBadge } from "./components/crew-surfaces";
 import { MemberCard, TopologyCanvas, TopologyLegend, type MemberAction } from "./components/crew-topology";
 import { OverviewCanvas } from "./components/crew-overview-canvas";
+import { OverviewToolbar } from "./components/crew-overview-toolbar";
+import { DEFAULT_OVERVIEW_FILTERS, type OverviewFilters } from "./lib/overview-graph";
 import { CrewEditFullscreen } from "./components/crew-edit-fullscreen";
 import { breadcrumb, zoomLevel, zoomOut, type ZoomPath } from "./lib/zoom-path";
 import { CommsStrip, MessageCard } from "./components/crew-comms";
@@ -727,7 +729,7 @@ export function WorkSection({ crew }: { crew: CrewDto }) {
 
 type Tab = "topology" | "table" | "file";
 const TABS: { id: Tab; label: string }[] = [
-  { id: "topology", label: "Topology" },
+  { id: "topology", label: "Members" },
   { id: "table", label: "Table & Feed" },
   { id: "file", label: "Edit crew file" },
 ];
@@ -755,6 +757,7 @@ export function TopologyTab({
   onChanged,
   selected: selectedFromPath,
   onSelect,
+  canvas = true,
 }: {
   crew: CrewDto;
   members: MemberDto[];
@@ -763,6 +766,8 @@ export function TopologyTab({
   /** BBP-83: the agent level of the Crews canvas owns the selection when given. */
   selected?: string | null;
   onSelect?: (member: string) => void;
+  /** BBP-83: false where the Crews canvas already draws the members. */
+  canvas?: boolean;
 }) {
   const rpc = useRpc<typeof rpcContract>();
   const [activity, setActivity] = useState<ActivityDto[]>([]);
@@ -832,6 +837,7 @@ export function TopologyTab({
           under the canvas, as in Graph Studio. Measured on the panel, not the viewport: the sidebar is narrow on a wide screen. */}
       <div className="@container">
       <div className="flex flex-col gap-4 @3xl:flex-row @3xl:items-start">
+        {canvas ? (
         <TopologyCanvas
           members={members}
           links={links}
@@ -846,6 +852,7 @@ export function TopologyTab({
           recent={recent}
           activeFlow={activeFlow}
         />
+        ) : null}
         {message ? (
           <MessageCard message={message} crewName={crew.name} onClose={() => setMessageId(null)} onOpenSender={openMember} />
         ) : current ? (
@@ -1265,6 +1272,9 @@ function CrewsPage() {
   const [links, setLinks] = useState<{ from: string; to: string; kind: string }[]>([]);
   const [yaml, setYaml] = useState<string | null>(null);
   const [needsByCrew, setNeedsByCrew] = useState(0);
+  const [activity, setActivity] = useState<ActivityDto[]>([]);
+  const [work, setWork] = useState<WorkDto[]>([]);
+  const [filters, setFilters] = useState<OverviewFilters>(DEFAULT_OVERVIEW_FILTERS);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
@@ -1282,7 +1292,6 @@ function CrewsPage() {
   // behind-main have no push channel.
   const [overviews, setOverviews] = useState<Map<string, OverviewDto>>(new Map());
   useEffect(() => {
-    if (level >= 2) return;
     let cancelled = false;
     const load = () => {
       void Promise.all(projects.map((project) => rpc.call("projectOverview", { projectId: project.id }).then((result) => [project.id, result] as const))).then((entries) => {
@@ -1295,7 +1304,7 @@ function CrewsPage() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [level, rpc, projects]);
+  }, [rpc, projects]);
 
   // Esc climbs one level; not while typing, and not under the crew editor, which closes on its own Esc.
   useEffect(() => {
@@ -1331,9 +1340,13 @@ function CrewsPage() {
       (cause: unknown) => setError(String(cause)),
     );
     rpc.call("getActivity", { projectId: crew.projectId, name: crew.name }).then(
-      (result) => setNeedsByCrew(result.members.filter((view) => view.needsYou.length > 0).length),
+      (result) => {
+        setActivity(result.members);
+        setNeedsByCrew(result.members.filter((view) => view.needsYou.length > 0).length);
+      },
       () => undefined,
     );
+    rpc.call("listWork", { projectId: crew.projectId, name: crew.name }).then((result) => setWork(result.items), () => undefined);
   }, [rpc, crew?.id, crew?.updatedAt]);
   useEffect(loadCrew, [loadCrew]);
   useRealtime(ACTIVITY_CHANNEL, loadCrew);
@@ -1357,11 +1370,30 @@ function CrewsPage() {
     }
   };
 
+  // The agent card's actions, as the member card in the Members tab runs them.
+  const memberAction = async (of: CrewDto, member: string, action: MemberAction) => {
+    const ref = { projectId: of.projectId, name: of.name, member };
+    try {
+      const result =
+        action === "open"
+          ? await rpc.call("openMembers", { projectId: of.projectId, name: of.name, members: [member], leadOnly: false })
+          : action === "handover"
+            ? await rpc.call("handover", ref)
+            : action === "detach"
+              ? await rpc.call("detach", ref)
+              : await rpc.call("reset", { ...ref, mode: action === "reset-new" ? "new" : "clear" });
+      setNote(result.error ?? (action === "open" ? null : `${action} done for ${member}`));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+    loadCrew();
+  };
   const crumbs = breadcrumb(path, projectName);
   return (
-    <div className={cn("h-full min-h-0 flex-1 overflow-x-hidden", level >= 2 ? "overflow-y-auto" : "overflow-y-hidden")}>
-      <div className={cn("box-border flex w-full flex-col px-4 pb-4 pt-3 md:px-5 md:pt-4", level < 2 && "h-full")}>
-        <nav aria-label="Breadcrumb" className="mb-3 flex shrink-0 items-center gap-1 text-sm">
+    <div className="h-full min-h-0 flex-1 overflow-hidden">
+      <div className="box-border flex h-full w-full flex-col px-4 pb-4 pt-3 md:px-5 md:pt-4">
+        <div className="mb-3 flex shrink-0 flex-wrap items-center gap-3">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm">
           {crumbs.map((step, index) => {
             const current = index === crumbs.length - 1;
             return (
@@ -1379,6 +1411,8 @@ function CrewsPage() {
             );
           })}
         </nav>
+        {level === 0 && crews && crews.length > 0 ? <OverviewToolbar projects={projects} filters={filters} onChange={setFilters} /> : null}
+        </div>
         {error ? (
           <p role="alert" className="mb-3 text-sm text-destructive">
             {error}
@@ -1391,9 +1425,8 @@ function CrewsPage() {
             No crews yet. Try <code>bb crew templates</code> and <code>bb crew apply trio</code>.
           </div>
         ) : (
-          <div className={cn("flex flex-col gap-3", level < 2 && "min-h-0 flex-1")}>
-            {level < 2 ? (
-              <>
+          <div className="flex min-h-0 flex-1 gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-3">
                 <div className="min-h-[320px] flex-1">
                   <OverviewCanvas
                     projects={projects}
@@ -1402,6 +1435,22 @@ function CrewsPage() {
                     onEnterProject={(projectId) => setPath({ projectId })}
                     onEnterCrew={(projectId, name) => setPath({ projectId, crew: name })}
                     onOpenTask={(_projectId, taskKey) => navigate.openUrl(`/tasks/${encodeURIComponent(taskKey)}`)}
+                    filters={level === 0 ? filters : DEFAULT_OVERVIEW_FILTERS}
+                    expanded={
+                      crew
+                        ? {
+                            projectId: crew.projectId,
+                            name: crew.name,
+                            members,
+                            links,
+                            activity,
+                            work,
+                            member: path.member ?? null,
+                            onEnterMember: (member) => setPath({ projectId: crew.projectId, crew: crew.name, member }),
+                            onAction: (member, action) => void memberAction(crew, member, action),
+                          }
+                        : null
+                    }
                   />
                 </div>
                 {level === 1 && path.projectId ? (
@@ -1411,10 +1460,11 @@ function CrewsPage() {
                     overview={overviews.get(path.projectId) ?? null}
                   />
                 ) : null}
-              </>
-            ) : null}
+            </div>
             {level >= 2 && !crew ? <p className="text-sm text-muted-foreground">This crew is gone.</p> : null}
             {level >= 2 && crew ? (
+              // The crew's detail card next to the canvas, like Graph Studio's editor sidebar.
+              <aside aria-label="Crew details" className="w-[28rem] max-w-[45%] shrink-0 overflow-y-auto border-l border-border/60 pl-4">
               <section>
                 <header className="mb-2 flex flex-wrap items-center gap-3">
                   <span className="text-base font-semibold">{crew.name}</span>
@@ -1529,6 +1579,7 @@ function CrewsPage() {
                 </nav>
                 {tab === "topology" ? (
                   <TopologyTab
+                    canvas={false}
                     crew={crew}
                     members={members}
                     links={links}
@@ -1546,6 +1597,7 @@ function CrewsPage() {
                   )
                 ) : null}
               </section>
+              </aside>
             ) : null}
           </div>
         )}

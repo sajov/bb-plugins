@@ -368,7 +368,7 @@ describe("topology", () => {
         sendMessage: (input: unknown) => (sent.push(input), { messages: [], error: null }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     await waitFor(() => expect(slot.container.querySelector('[data-member-node="dev-impl"]')?.getAttribute("data-activity")).toBe("needs-you"));
     expect(slot.container.querySelector('[data-member-node="orch-lead"]')!.getAttribute("data-activity")).toBe("working");
     const card = slot.getByRole("complementary", { name: "Member card" });
@@ -390,7 +390,7 @@ describe("topology", () => {
         reset: (input: unknown) => (calls.push({ method: "reset", input }), { results: [], problems: [], error: null }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const card = await slot.findByRole("complementary", { name: "Member card" });
     expect(card.querySelector("[data-needs-you]")).toBeNull();
     expect(card.textContent).toContain("orch-lead@trio");
@@ -413,7 +413,7 @@ describe("topology", () => {
         }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     // negative: the initially selected lead card has no runs, so none of this shows.
     const leadCard = await slot.findByRole("complementary", { name: "Member card" });
     expect(leadCard.textContent).not.toContain("release");
@@ -496,7 +496,7 @@ describe("topology canvas surfaces", () => {
   it("cards name their group in Graph Studio's kind line; no group boxes are drawn", async () => {
     const app = await loadPluginApp(() => import("../app"));
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: backend({}) });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const node = await waitFor(() => {
       const found = slot.container.querySelector('[data-member-node="dev-impl"]');
       expect(found).not.toBeNull();
@@ -517,7 +517,7 @@ describe("topology canvas surfaces", () => {
         }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const meta = await waitFor(() => {
       const found = slot.container.querySelector('[data-member-node="dev-impl"] [data-member-meta]');
       expect(found).not.toBeNull();
@@ -539,7 +539,7 @@ describe("topology canvas surfaces", () => {
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
       rpc: backend({ reset: (input: unknown) => (calls.push(input), { results: [], problems: [], error: null }) }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const card = await slot.findByRole("complementary", { name: "Member card" });
     // Negative first: no loose "Reset (new thread)" control before the menu is opened.
     expect(within(card).queryByText("Reset (new thread)")).toBeNull();
@@ -565,7 +565,7 @@ describe("crew header", () => {
         attachCandidates: () => ({ threads: [{ id: "thr_x", title: "scratch", status: "idle", providerId: "claude-code" }] }),
       }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     // BBP-83: the breadcrumb names the crew; the old crew dropdown is gone.
     expect(within(slot.getByRole("navigation", { name: "Breadcrumb" })).getByRole("button", { name: "trio" }).getAttribute("aria-current")).toBe("page");
     expect(slot.queryByLabelText("Crew")).toBeNull();
@@ -591,7 +591,7 @@ describe("add member form", () => {
     const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, {
       rpc: backend({ addMember: (input: unknown) => (sent.push(input as Record<string, unknown>), { results: [{ result: "spawned", address: "dev-x@trio" }], error: null }) }),
     });
-    await openCrew(slot, "Topology");
+    await openCrew(slot, "Members");
     const open = () => {
       fireEvent.click(slot.getByRole("button", { name: "More crew actions" }));
       fireEvent.click(slot.getByRole("menuitem", { name: "Add member" }));

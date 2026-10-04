@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import {
   DEFAULT_OVERVIEW_FILTERS,
   buildOverviewGraph,
+  crewNodeId,
   filterOverviewGraph,
   visibleOverviewEdges,
   type CrewNode,
@@ -26,7 +27,10 @@ import {
   type ProjectSummary,
   type TaskNode,
 } from "../lib/overview-graph";
-import { layoutOverview } from "../lib/overview-layout";
+import { layoutOverview, type NodeSize } from "../lib/overview-layout";
+import type { ActivityDto, MemberDto, WorkDto } from "../server";
+import { AGENT_H, AGENT_W, AgentNodeView, currentWork } from "./crew-agent-node";
+import { buildCrewCanvas, MemberNode, PathEdge, TopologyMarkers, type MemberAction, type PathEdgeData } from "./crew-topology";
 import { colorLightness, FLOW_THEME as BASE_FLOW_THEME, useHostColorMode } from "./crew-topology";
 
 export { buildOverviewGraph, filterOverviewGraph, type OverviewFilters, type OverviewGraph, type OverviewProject, type OverviewSource };
@@ -152,7 +156,22 @@ function FrameNodeView({ data }: NodeProps<Node<{ project: ProjectSummary; dim: 
   );
 }
 
-const NODE_TYPES = { crew: CrewNodeView, task: TaskNodeView, frame: FrameNodeView };
+/** Level 2: the crew grown into a frame around its members, with its name on top. */
+function CrewOpenNodeView({ data }: NodeProps<Node<{ crew: CrewNode }>>) {
+  const { crew } = data;
+  return (
+    <div data-crew-open={crew.name} className="h-full w-full rounded-xl border-2 border-primary/60 bg-card/60">
+      <div className="flex items-center gap-2 px-3 py-2 text-xs">
+        <span className="text-[9px] uppercase tracking-[0.06em] text-muted-foreground">Crew</span>
+        <span className="text-sm font-medium text-foreground">{crew.name}</span>
+        <span className="text-muted-foreground">{crew.status}</span>
+        {crew.branch ? <span className="truncate font-mono text-[10px] text-muted-foreground">⎇ {crew.branch}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+const NODE_TYPES = { crew: CrewNodeView, task: TaskNodeView, frame: FrameNodeView, crewOpen: CrewOpenNodeView, member: MemberNode, agent: AgentNodeView };
 
 type TaskCrewEdgeData = { active: boolean };
 function TaskCrewEdgeView({ id, sourceX, sourceY, targetX, targetY, data }: EdgeProps<Edge<TaskCrewEdgeData>>) {
@@ -175,15 +194,45 @@ function LeadLeadEdgeView({ sourceX, sourceY, targetX, targetY }: EdgeProps<Edge
   return <path d={path} fill="none" stroke="var(--muted-foreground)" strokeWidth={1.25} strokeDasharray="5 4" opacity={0.6} />;
 }
 
-const EDGE_TYPES = { "task-crew": TaskCrewEdgeView, "lead-lead": LeadLeadEdgeView };
+/** A member link: the topology's own path, moved to where the crew sits on this canvas. */
+function MemberLinkEdgeView(props: EdgeProps<Edge<PathEdgeData & { dx: number; dy: number }>>) {
+  if (!props.data) return null;
+  return (
+    <g transform={`translate(${props.data.dx} ${props.data.dy})`}>
+      <PathEdge {...(props as unknown as EdgeProps<Edge<PathEdgeData>>)} />
+    </g>
+  );
+}
 
-/** Fits all projects, or zooms smoothly into one project's cluster. */
-function Fit({ focusProject, layoutKey }: { focusProject: string | null; layoutKey: string }) {
+const EDGE_TYPES = { "task-crew": TaskCrewEdgeView, "lead-lead": LeadLeadEdgeView, "member-link": MemberLinkEdgeView };
+
+/** Room around the members inside an opened crew: the name row on top, a margin around. */
+const OPEN_PAD = 24;
+const OPEN_HEADER = 40;
+
+/** Levels 2 and 3: the crew drawn open on the canvas, with what its members need. */
+export type ExpandedCrew = {
+  projectId: string;
+  name: string;
+  members: readonly MemberDto[];
+  links: readonly { from: string; to: string; kind: string }[];
+  activity: readonly ActivityDto[];
+  work: readonly WorkDto[];
+  /** Level 3: the member opened into its agent card. */
+  member: string | null;
+  onEnterMember: (key: string) => void;
+  onAction: (member: string, action: MemberAction) => void;
+};
+
+/** Zooms smoothly to what the level is about; with nothing in focus, fits everything. */
+function Fit({ focus, layoutKey }: { focus: readonly string[]; layoutKey: string }) {
   const flow = useReactFlow();
+  const focusKey = focus.join("|");
   useLayoutEffect(() => {
-    if (focusProject) void flow.fitView({ nodes: [{ id: `frame:${focusProject}` }], duration: 500, padding: 0.08, maxZoom: 1.5 });
+    if (focus.length > 0) void flow.fitView({ nodes: focus.map((id) => ({ id })), duration: 500, padding: 0.08, maxZoom: 1.5 });
     else void flow.fitView({ padding: 0.08, maxZoom: 1, duration: 400 });
-  }, [flow, focusProject, layoutKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flow, focusKey, layoutKey]);
   return null;
 }
 
@@ -195,6 +244,7 @@ export function OverviewCanvas({
   onEnterCrew,
   onOpenTask,
   filters = DEFAULT_OVERVIEW_FILTERS,
+  expanded = null,
 }: {
   projects: readonly OverviewProject[];
   overviews: ReadonlyMap<string, OverviewSource>;
@@ -204,19 +254,32 @@ export function OverviewCanvas({
   onEnterCrew: (projectId: string, crewName: string) => void;
   onOpenTask: (projectId: string, taskKey: string) => void;
   filters?: OverviewFilters;
+  expanded?: ExpandedCrew | null;
 }) {
   const [colorRef, colorMode] = useHostColorMode();
+  const openId = expanded ? crewNodeId(expanded.projectId, expanded.name) : null;
+  // The opened crew's member topology, laid out the way the Topology tab lays it out.
+  const topology = useMemo(
+    () => (expanded ? buildCrewCanvas(expanded.members as MemberDto[], expanded.links, [], new Set(), null) : null),
+    [expanded?.members, expanded?.links],
+  );
+  const sizes = useMemo(
+    () => new Map<string, NodeSize>(openId && topology ? [[openId, { width: topology.width + OPEN_PAD * 2, height: topology.height + OPEN_HEADER + OPEN_PAD }]] : []),
+    [openId, topology],
+  );
 
   const graph = useMemo(() => buildOverviewGraph(projects, overviews), [projects, overviews]);
   const filtered = useMemo(() => filterOverviewGraph(graph, filters), [graph, filters]);
-  const layout = useMemo(() => layoutOverview(graph, filtered.visible), [graph, filtered.visible]);
+  const layout = useMemo(() => layoutOverview(graph, filtered.visible, sizes), [graph, filtered.visible, sizes]);
   const edges = useMemo(() => visibleOverviewEdges(graph, filtered.visible), [graph, filtered.visible]);
 
   const nodeById = useMemo(() => new Map<string, OverviewNode>(graph.nodes.map((node) => [node.id, node])), [graph]);
 
-  // Level 1 fades the other projects instead of hiding them: you see where you zoomed in from.
+  // Deeper levels fade the rest instead of hiding it: you see where you zoomed in from.
   const dimmed = (node: OverviewNode) =>
-    (focusProject !== null && node.projectId !== focusProject) || (filters.search.trim() !== "" && !filtered.matched.has(node.id));
+    (focusProject !== null && node.projectId !== focusProject) ||
+    (openId !== null && node.id !== openId) ||
+    (filters.search.trim() !== "" && !filtered.matched.has(node.id));
 
   const nodes: Node[] = [
     ...layout.frames.map((frame) => {
@@ -235,7 +298,8 @@ export function OverviewCanvas({
     }),
     ...layout.placed.map((placed) => ({
       id: placed.id,
-      type: placed.node.kind,
+      type: placed.id === openId ? "crewOpen" : placed.node.kind,
+      ...(placed.id === openId ? { zIndex: -1, selectable: false } : {}),
       position: { x: placed.x, y: placed.y },
       width: placed.width,
       height: placed.height,
@@ -256,6 +320,58 @@ export function OverviewCanvas({
     data: edge.kind === "task-crew" ? { active: edge.active } : undefined,
   }));
 
+  // Levels 2 and 3: the members inside the opened crew, and the agent card over its member.
+  const open = openId ? layout.placed.find((placed) => placed.id === openId) : undefined;
+  let focus: readonly string[] = filters.search.trim() !== "" ? filtered.focus : [];
+  if (focusProject) focus = [`frame:${focusProject}`];
+  if (expanded && open && topology) {
+    const dx = open.x + OPEN_PAD;
+    const dy = open.y + OPEN_HEADER;
+    const views = new Map(expanded.activity.map((view) => [view.key, view]));
+    const byKey = new Map(expanded.members.map((member) => [member.key, member]));
+    for (const box of topology.boxes) {
+      const member = byKey.get(box.id);
+      if (!member) continue;
+      nodes.push({
+        id: `member:${box.id}`,
+        type: "member",
+        position: { x: dx + box.x, y: dy + box.y },
+        width: box.width,
+        height: box.height,
+        style: { width: box.width, height: box.height },
+        draggable: false,
+        data: { member, view: views.get(box.id) ?? null, selected: box.id === expanded.member },
+      });
+    }
+    for (const edge of topology.edges) {
+      flowEdges.push({ ...edge, id: `member-link:${edge.id}`, source: `member:${edge.source}`, target: `member:${edge.target}`, type: "member-link", data: { ...edge.data!, dx, dy } });
+    }
+    focus = [openId!];
+    const agentBox = expanded.member ? topology.boxes.find((box) => box.id === expanded.member) : undefined;
+    const agent = agentBox ? byKey.get(agentBox.id) : undefined;
+    if (agentBox && agent) {
+      // Grows out of the member it opens, centred on it.
+      nodes.push({
+        id: `agent:${agent.key}`,
+        type: "agent",
+        position: { x: dx + agentBox.x + (agentBox.width - AGENT_W) / 2, y: dy + agentBox.y + (agentBox.height - AGENT_H) / 2 },
+        width: AGENT_W,
+        height: AGENT_H,
+        style: { width: AGENT_W, height: AGENT_H },
+        zIndex: 1000,
+        draggable: false,
+        selectable: false,
+        data: {
+          member: agent,
+          view: views.get(agent.key) ?? null,
+          work: currentWork(expanded.work, agent.address),
+          onAction: (action: MemberAction) => expanded.onAction(agent.key, action),
+        },
+      });
+      focus = [`agent:${agent.key}`];
+    }
+  }
+
   return (
     <div
       ref={colorRef}
@@ -264,6 +380,9 @@ export function OverviewCanvas({
       className="relative h-full w-full min-w-0 overflow-hidden rounded-lg border border-border bg-background"
       aria-label="Crews canvas"
     >
+      <svg width="0" height="0" className="absolute" aria-hidden>
+        <TopologyMarkers />
+      </svg>
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}
@@ -282,6 +401,8 @@ export function OverviewCanvas({
           zoomOnDoubleClick={false}
           onNodeClick={(_event, node) => {
             if (node.id.startsWith("frame:")) return onEnterProject(node.id.slice("frame:".length));
+            if (node.id.startsWith("member:")) return expanded?.onEnterMember(node.id.slice("member:".length));
+            if (node.id.startsWith("agent:") || node.id === openId) return;
             const overviewNode = nodeById.get(node.id);
             if (!overviewNode) return;
             if (overviewNode.kind === "crew") onEnterCrew(overviewNode.projectId, overviewNode.name);
@@ -290,9 +411,19 @@ export function OverviewCanvas({
         >
           <Controls showInteractive={false} position="bottom-left" />
           <MiniMap pannable zoomable position="bottom-right" style={{ background: "var(--card)" }} maskColor="color-mix(in oklab, var(--background) 70%, transparent)" />
-          <Fit focusProject={focusProject} layoutKey={`${layout.width}x${layout.height}`} />
+          <Fit focus={focus} layoutKey={`${layout.width}x${layout.height}`} />
         </ReactFlow>
       </ReactFlowProvider>
+      {/* The opened crew's links as text: React Flow draws edges only after measuring, and screen readers need them anyway. */}
+      {expanded ? (
+        <ul className="sr-only" aria-label="Links">
+          {expanded.links.map((link) => (
+            <li key={`${link.from}-${link.to}-${link.kind}`} data-link-kind={link.kind}>
+              {link.from} {link.kind} {link.to}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
