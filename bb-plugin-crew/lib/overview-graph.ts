@@ -9,6 +9,8 @@
 // diagram just draws several of them side by side, framed by project, with
 // task nodes derived from each crew's own ticket and its open dependencies.
 
+import { hasErrorReason } from "./topology";
+
 export type OverviewProject = { id: string; name: string };
 
 /** The subset of `OverviewDto` the diagram reads — see server.ts's `overviewSchema`. */
@@ -20,7 +22,7 @@ export type OverviewSource = {
     task: string | null;
     branch: string | null;
     needsYou: number;
-    members: ReadonlyArray<{ key: string; lead: boolean; activity: string }>;
+    members: ReadonlyArray<{ key: string; lead: boolean; activity: string; needsYou?: readonly string[] }>;
     /** BB tasks carrying the label `crew-<name>` — the source of truth for factory crews, which never set `task` (BBP-84). */
     labelTasks?: ReadonlyArray<{ key: string; title: string; status: string }>;
   }>;
@@ -36,8 +38,10 @@ export type CrewNode = {
   status: string;
   branch: string | null;
   task: string | null;
-  members: ReadonlyArray<{ key: string; lead: boolean; activity: string }>;
+  members: ReadonlyArray<{ key: string; lead: boolean; activity: string; needsYou?: readonly string[] }>;
   needsYou: number;
+  /** BBP-95: a real failure anywhere in the crew outranks a mere decision — red vs. amber. */
+  needsYouSeverity: "error" | "decision" | null;
 };
 
 export type TaskNode = {
@@ -120,6 +124,7 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
         task: crew.task,
         members: crew.members,
         needsYou: crew.needsYou,
+        needsYouSeverity: hasErrorReason(crew.members.flatMap((member) => member.needsYou ?? [])) ? "error" : crew.needsYou > 0 ? "decision" : null,
       });
       if (crew.task) {
         const task = ensureTask(crew.task, false);

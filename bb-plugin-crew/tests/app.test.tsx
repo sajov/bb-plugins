@@ -182,7 +182,7 @@ describe("Crews panel", () => {
     expect(rows[0]!.getAttribute("data-needs-you")).toBe("true");
     expect(rows[0]!.textContent).toContain("dev-impl@trio");
     expect(rows[1]!.getAttribute("data-needs-you")).toBeNull();
-    expect(slot.getAllByText("1 Needs you")).toHaveLength(1);
+    expect(slot.getAllByText("1 waiting on you")).toHaveLength(1);
     fireEvent.click(slot.getByRole("button", { name: "Reply" }));
     fireEvent.change(slot.getByLabelText("Reply text"), { target: { value: "v2" } });
     fireEvent.click(slot.getByRole("button", { name: "Send" }));
@@ -197,7 +197,7 @@ describe("Crews panel", () => {
     await openCrew(slot);
     await slot.findByText("dev-impl@trio");
     await slot.findByText("No messages.");
-    expect(slot.queryByText(/Needs you/)).toBeNull();
+    expect(slot.queryByText(/waiting on you|error/)).toBeNull();
     expect(slot.container.querySelector("[data-needs-you]")).toBeNull();
     slot.lifecycle.unmount();
   });
@@ -294,7 +294,7 @@ describe("Crews panel", () => {
       { threadId: "th_3", status: null },
     ];
     const slot = renderSlot({ component: app.navPanels[0]!.experimental_sidebarAccessory! }, {}, {
-      rpc: { rowStatuses: () => ({ rows, needsYou: 1 }) },
+      rpc: { rowStatuses: () => ({ rows, needsYou: 1, errors: 1, decisions: 0 }) },
     });
     await slot.findByLabelText("1 Needs you");
     expect(mounted.inspection.getThreadRowStatus("th_1")).toMatchObject({ tone: "error" });

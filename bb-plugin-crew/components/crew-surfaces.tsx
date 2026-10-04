@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useBbNavigate, useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { PluginMessageDirectiveProps, PluginPendingInteractionProps, PluginThreadHeaderActionProps } from "@get-bb/plugin-sdk/app";
 import type { ActivityDto, CrewDto, rpcContract } from "../server";
-import { activityTone } from "../lib/topology";
+import { activityTone, reasonCounts, topReasonLabel } from "../lib/topology";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -116,7 +116,7 @@ export function CrewDirectiveCard({ attributes, message }: Pick<PluginMessageDir
   if (!projectId) return <p className="text-xs text-muted-foreground">Crew {name}: no project for this message.</p>;
   if (crew === undefined) return <p className="text-xs text-muted-foreground">Crew {name}: loading…</p>;
   if (crew === null) return <p className="text-xs text-muted-foreground">There is no crew “{name}” in this project.</p>;
-  const needs = views.filter((view) => view.needsYou.length > 0).length;
+  const { errors, decisions } = reasonCounts(views.flatMap((view) => view.needsYou));
   return (
     <div data-crew-directive={crew.name} className="my-2 flex flex-col gap-2 rounded-xl border border-border bg-card text-card-foreground p-3 text-xs">
       <div className="flex items-center gap-2">
@@ -125,15 +125,16 @@ export function CrewDirectiveCard({ attributes, message }: Pick<PluginMessageDir
         <span className="text-muted-foreground">
           {crew.status} · {views.length} members · file v{crew.fileVersion}
         </span>
-        {needs > 0 ? <span className="ml-auto rounded-full border border-destructive/40 bg-destructive/10 px-2 text-destructive">{needs} Needs you</span> : null}
+        {errors > 0 ? <span className="ml-auto rounded-full border border-destructive/40 bg-destructive/10 px-2 text-destructive">{errors} error{errors === 1 ? "" : "s"}</span> : null}
+        {decisions > 0 ? <span className={cn("rounded-full border border-warning/40 bg-warning/10 px-2 text-warning", errors === 0 && "ml-auto")}>{decisions} waiting</span> : null}
       </div>
       <ul className="flex flex-wrap gap-x-3 gap-y-1" aria-label="Members">
         {views.map((view) => (
           <li key={view.key} className="flex items-center gap-1" title={view.question ?? view.activity}>
-            <span className="inline-block size-2 rounded-full" style={{ background: activityTone(view.activity, view.needsYou.length > 0) }} />
+            <span className="inline-block size-2 rounded-full" style={{ background: activityTone(view.activity, view.needsYou) }} />
             {view.lead ? "★ " : ""}
             {view.key}
-            <span className="text-muted-foreground">{view.needsYou.length > 0 ? "needs you" : view.activity}</span>
+            <span className="text-muted-foreground">{topReasonLabel(view.needsYou) ?? view.activity}</span>
           </li>
         ))}
       </ul>

@@ -138,7 +138,7 @@ describe("::crew directive", () => {
       expect(found).not.toBeNull();
       return found!;
     });
-    await waitFor(() => expect(card.textContent).toContain("1 Needs you"));
+    await waitFor(() => expect(card.textContent).toContain("1 waiting"));
     expect(card.textContent).toContain("running · 2 members · file v2");
     expect(card.textContent).toContain("★ orch-lead");
     fireEvent.click(slot.getByRole("button", { name: "Open in Crews" }));

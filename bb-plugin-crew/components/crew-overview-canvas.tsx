@@ -54,9 +54,9 @@ const STATUS_STROKE: Record<string, string> = {
 
 function CrewNodeView({ data }: NodeProps<Node<{ crew: CrewNode; selected: boolean; matched: boolean; dim: boolean }>>) {
   const { crew, selected, matched, dim } = data;
-  const needs = crew.needsYou > 0;
+  const needs = crew.needsYouSeverity !== null;
   const fill = STATUS_FILL[crew.status] ?? STATUS_FILL.stopped!;
-  const stroke = needs ? "var(--destructive)" : (STATUS_STROKE[crew.status] ?? STATUS_STROKE.stopped!);
+  const stroke = crew.needsYouSeverity === "error" ? "var(--destructive)" : crew.needsYouSeverity === "decision" ? "var(--warning)" : (STATUS_STROKE[crew.status] ?? STATUS_STROKE.stopped!);
   const pulsing = crew.status === "running" || needs;
   return (
     <div
@@ -75,9 +75,9 @@ function CrewNodeView({ data }: NodeProps<Node<{ crew: CrewNode; selected: boole
       >
         <div className="flex items-center justify-between gap-2 text-[9px] uppercase tracking-[0.06em] text-muted-foreground">
           <span>CREW</span>
-          <span className="flex items-center gap-1" style={needs ? { color: "var(--destructive)" } : undefined}>
+          <span className="flex items-center gap-1" style={needs ? { color: stroke } : undefined}>
             <span aria-hidden className={cn("size-1.5 rounded-full", pulsing && "animate-pulse")} style={{ background: stroke }} />
-            {needs ? "waits on you" : crew.status}
+            {crew.needsYouSeverity === "error" ? "error" : crew.needsYouSeverity === "decision" ? "waits on you" : crew.status}
           </span>
         </div>
         <span className="truncate text-sm font-medium text-foreground">{crew.name}</span>
