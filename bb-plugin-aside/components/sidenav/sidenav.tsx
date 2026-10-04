@@ -234,6 +234,19 @@ export function Sidenav({
     [view.tagFilter, knownTags],
   );
 
+  // Projects as their own filter entries, offered under the tags.
+  const knownProjects = useMemo(
+    () => projects.map((project) => ({ id: project.id, name: project.name })),
+    [projects],
+  );
+  const projectIds = useMemo(() => projects.map((project) => project.id), [projects]);
+  // A renamed project keeps its pick (ids, not names); a deleted one is
+  // pruned the same way a tag is when its last project disappears.
+  const projectFilter = useMemo(
+    () => pruneTagFilter(view.projectFilter, projectIds),
+    [view.projectFilter, projectIds],
+  );
+
   // A `#` query picks tags; it is not a name search and narrows nothing itself.
   const searching = normalizeQuery(query).length > 0 && tagPrefix(query) === null;
 
@@ -253,12 +266,17 @@ export function Sidenav({
     // survives `withoutEmptyProjects`: the thread on screen must have a row in
     // the list it belongs to, or the sidenav contradicts the pane next to it.
     const tagged =
-      tagFilter.length === 0
+      tagFilter.length === 0 && projectFilter.length === 0
         ? shown
         : shown.filter(
             (block) =>
               block.project.id === activeProject ||
-              matchesTagFilter(tags[block.project.id] ?? [], tagFilter),
+              matchesTagFilter(
+                tags[block.project.id] ?? [],
+                tagFilter,
+                block.project.id,
+                projectFilter,
+              ),
           );
     // The search does not spare the active project. A tag filter is a standing
     // setting you may have forgotten; a query is a question you are typing this
@@ -279,6 +297,7 @@ export function Sidenav({
     view.emptyProjects,
     activeProject,
     tagFilter,
+    projectFilter,
     tags,
     searching,
     query,
@@ -291,21 +310,35 @@ export function Sidenav({
     () => (view.pinnedGroup ? pinnedFamilies(blocks) : []),
     [blocks, view.pinnedGroup],
   );
+  const projectFilterNames = useMemo(
+    () =>
+      projectFilter
+        .map((id) => knownProjects.find((project) => project.id === id)?.name)
+        .filter((name): name is string => name !== undefined),
+    [projectFilter, knownProjects],
+  );
   const scopes = useMemo(
-    () => activeScopes({ query, tagFilter, archived: view.archived }),
-    [query, tagFilter, view.archived],
+    () =>
+      activeScopes({
+        query,
+        tagFilter,
+        projectNames: projectFilterNames,
+        archived: view.archived,
+      }),
+    [query, tagFilter, projectFilterNames, view.archived],
   );
   const clearScope = useCallback(
     (kind: ScopeKind) => {
       if (kind === "search") setQuery("");
       if (kind === "tags") patchView({ tagFilter: [] });
+      if (kind === "projects") patchView({ projectFilter: [] });
       if (kind === "archived") patchView({ archived: false });
     },
     [patchView],
   );
   const clearAllScopes = useCallback(() => {
     setQuery("");
-    patchView({ tagFilter: [], archived: false });
+    patchView({ tagFilter: [], projectFilter: [], archived: false });
   }, [patchView]);
 
   const openThread = useCallback(
@@ -554,7 +587,7 @@ export function Sidenav({
         {/* Three zones: find · order and display · actions. */}
         <SearchToggle
           open={searchOpen}
-          active={searching || tagFilter.length > 0}
+          active={searching || tagFilter.length > 0 || projectFilter.length > 0}
           onToggle={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
         />
         <span aria-hidden className="mx-0.5 h-3.5 w-px bg-border-hairline" />
@@ -591,6 +624,11 @@ export function Sidenav({
           tagCounts={counts}
           activeTags={tagFilter}
           onToggleTag={(tag) => patchView({ tagFilter: toggleId(tagFilter, tag) })}
+          knownProjects={knownProjects}
+          activeProjects={projectFilter}
+          onToggleProject={(projectId) =>
+            patchView({ projectFilter: toggleId(projectFilter, projectId) })
+          }
         />
       ) : null}
 

@@ -104,12 +104,21 @@ export function sortedTags(counts: Readonly<Record<string, number>>): string[] {
  * several tags are an OR: picking `api` and `web` asks for the projects that
  * carry either, which is what a list of checkboxes reads as. An AND would make
  * every second pick empty the list.
+ *
+ * A picked project is a second, independent OR branch: it joins the tag group
+ * rather than narrowing it further, so a tag group plus one foreign project
+ * shows the group's projects plus that one. `projectId`/`projectFilter`
+ * default to nothing picked, so a two-argument call behaves exactly as
+ * before.
  */
 export function matchesTagFilter(
   tags: readonly string[],
   filter: readonly string[],
+  projectId: string = "",
+  projectFilter: readonly string[] = [],
 ): boolean {
-  return filter.length === 0 || filter.some((tag) => tags.includes(tag));
+  if (filter.length === 0 && projectFilter.length === 0) return true;
+  return filter.some((tag) => tags.includes(tag)) || projectFilter.includes(projectId);
 }
 
 /**

@@ -17,4 +17,24 @@ describe("scope chips", () => {
   it("does not count a # query as a name search", () => {
     expect(activeScopes({ query: "#ap", tagFilter: [], archived: false })).toEqual([]);
   });
+
+  it("shows picked projects as their own chip, separate from tags", () => {
+    expect(
+      activeScopes({
+        query: "",
+        tagFilter: ["api"],
+        projectNames: ["Billing"],
+        archived: false,
+      }),
+    ).toEqual([
+      { kind: "tags", label: "#api" },
+      { kind: "projects", label: "Billing" },
+    ]);
+  });
+
+  it("omits the projects chip when nothing is picked directly", () => {
+    expect(activeScopes({ query: "", tagFilter: [], projectNames: [], archived: false })).toEqual(
+      [],
+    );
+  });
 });
