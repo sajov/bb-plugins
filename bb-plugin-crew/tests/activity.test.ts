@@ -126,6 +126,42 @@ describe("activity tracker", () => {
     expect((await tracker.views(store.getCrew(crew.id)!)).map((view) => view.rowStatus?.tone ?? null)).toEqual([null, "running", null]);
   });
 
+  it("BBP-87: a stopped-loop message needs a reason AND a body to count as Needs you (loop)", async () => {
+    const { service, port, store } = setup();
+    const { members } = await running(service, port);
+    const sender = members["dev-impl"]!;
+    const stoppedLoop = (id: string, overrides: { reason: string | null; body: string }) =>
+      store.insertMessage({
+        id,
+        projectId: "proj_1",
+        chainId: `chain_${id}`,
+        step: 1,
+        replyTo: null,
+        kind: "message",
+        fromAddress: sender.address,
+        fromMember: sender.id,
+        fromCrew: sender.crewId,
+        toAddress: "dev-review@trio",
+        toMember: null,
+        toCrew: sender.crewId,
+        subject: "x",
+        body: overrides.body,
+        priority: "normal",
+        status: "stopped_loop",
+        reason: overrides.reason,
+        appendedTo: null,
+      });
+    // Neither alone is enough: a reason without an actual message, or a message the plugin stopped without saying why.
+    stoppedLoop("m1", { reason: null, body: "please check the deploy" });
+    expect((await service.activity.refreshMember(sender))!.needsYou).not.toContain("loop");
+    stoppedLoop("m2", { reason: "step 6 reached maxSteps 6", body: "" });
+    expect((await service.activity.refreshMember(sender))!.needsYou).not.toContain("loop");
+    stoppedLoop("m3", { reason: "step 6 reached maxSteps 6", body: "please check the deploy" });
+    const view = (await service.activity.refreshMember(sender))!;
+    expect(view.needsYou).toContain("loop");
+    expect(view.question).toBe("Stopped as a loop: step 6 reached maxSteps 6. Suggested: please check the deploy");
+  });
+
   it("held messages show as On hold on the recipient", async () => {
     const { service, port } = setup();
     const { self, threads } = await running(service, port);
