@@ -79,6 +79,7 @@ export interface CardCallbacks {
   onRename: (threadId: string, title: string) => void;
   onSetSection: (threadId: string, sectionId: string | null) => void;
   onCreateSection: (threadId: string) => void;
+  onNewSubThread: (threadId: string) => void;
   onNest: (threadId: string, parentThreadId: string) => void;
   onReorder: (threadId: string, targetThreadId: string, where: "before" | "after") => void;
   onDropRejected: (reason: string) => void;
@@ -204,6 +205,7 @@ export function ThreadCard({
         onRename={() => onStartRename(root.id)}
         onSetSection={(sectionId) => callbacks.onSetSection(root.id, sectionId)}
         onCreateSection={() => callbacks.onCreateSection(root.id)}
+        onNewSubThread={() => callbacks.onNewSubThread(root.id)}
       >
         <div
           data-aside-card={root.id}
@@ -408,6 +410,7 @@ function ChildRow({
       onRename={() => callbacks.onRename(thread.id, threadTitle(thread))}
       onSetSection={(sectionId) => callbacks.onSetSection(thread.id, sectionId)}
       onCreateSection={() => callbacks.onCreateSection(thread.id)}
+      onNewSubThread={() => callbacks.onNewSubThread(thread.id)}
     >
       <div
         onClick={(event) => {
