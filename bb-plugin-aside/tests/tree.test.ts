@@ -18,6 +18,7 @@ import {
   groupThreads,
   sortFamilies,
   sortProjects,
+  sortSections,
   splitIntoSections,
   splitQuiet,
   threadState,
@@ -415,6 +416,56 @@ describe("sections", () => {
     const inSection = thread({ id: "in", projectId: "p", sectionId: "s2" });
     const blocks = splitIntoSections([{ root: inSection, children: [] }], sections);
     expect(blocks.map((block) => block.section?.name)).toEqual(["Wartung"]);
+  });
+});
+
+describe("dragged section order", () => {
+  const sections = [
+    { id: "s1", name: "Release" },
+    { id: "s2", name: "Wartung" },
+  ];
+
+  it("keeps the newest-first order when nothing was dragged", () => {
+    expect(sortSections(sections).map((section) => section.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("sorts by the dragged order", () => {
+    expect(
+      sortSections(sections, ["s2", "s1"]).map((section) => section.id),
+    ).toEqual(["s2", "s1"]);
+  });
+
+  it("keeps an undragged section first, newest first, ahead of dragged ones", () => {
+    const three = [...sections, { id: "s3", name: "Neu" }];
+    expect(
+      sortSections(three, ["s1"]).map((section) => section.id),
+    ).toEqual(["s2", "s3", "s1"]);
+  });
+
+  it("applies the dragged order inside splitIntoSections", () => {
+    const inS1 = thread({ id: "a", projectId: "p", sectionId: "s1" });
+    const inS2 = thread({ id: "b", projectId: "p", sectionId: "s2" });
+    const blocks = splitIntoSections(
+      [
+        { root: inS1, children: [] },
+        { root: inS2, children: [] },
+      ],
+      sections,
+      ["s2", "s1"],
+    );
+    expect(blocks.map((block) => block.section?.name)).toEqual(["Wartung", "Release"]);
+  });
+
+  it("groupThreads applies the dragged section order", () => {
+    const inS1 = thread({ id: "a", projectId: "p", sectionId: "s1" });
+    const inS2 = thread({ id: "b", projectId: "p", sectionId: "s2" });
+    const [block] = groupThreads([inS1, inS2], [project("p")], {
+      archived: false,
+      sections,
+      threadSort: "newest",
+      sectionOrder: ["s2", "s1"],
+    });
+    expect(block.blocks.map((entry) => entry.section?.name)).toEqual(["Wartung", "Release"]);
   });
 });
 
