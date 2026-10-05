@@ -1,19 +1,25 @@
-## A team that stays
+## A runtime, not a fixed team shape
 
-A Graph Studio flow ends; a crew stays. You describe the team once in a
+A Graph Studio flow ends; a crew stays. You describe a topology once in a
 `crew.yaml` — groups of members, each with a fixed address such as
 `dev-owner@pair`, its own provider and model, a role and permissions — and
 `bb crew apply` reconciles the file against BB threads. The lead's thread is
 the parent, every member is a child thread in the sidebar. Change the file and
 apply again: only the difference is applied, and `bb crew plan` shows it first.
 
-## Members talk to each other
+The lead orchestrates rather than joining the work: it assigns a step, waits
+for the artifact, and hands exactly that on. Whether members also message each
+other is a choice in the file, not the default — an isolated pipeline (fresh
+context per step, a reviewer that only sees the named commit) and a
+communicating team are both the same format, just different links.
 
-Members message each other by address, share a channel and a work queue, and
-hand off work with a subject such as a task key. Writing members get their own
-worktree; readers share the crew's. A member that waits for you shows up in
-**Needs you** with its question — including a Graph Studio run of theirs that
-is sitting on a human node.
+## Members can talk to each other
+
+Where the file declares it, members message each other by address, share a
+channel and a work queue, and hand off work with a subject such as a task key.
+Writing members get their own worktree; readers share the crew's. A member
+that waits for you shows up in **Needs you** with its question — including a
+Graph Studio run of theirs that is sitting on a human node.
 
 ## Running a Graph Studio graph from a member
 

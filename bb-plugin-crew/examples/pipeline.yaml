@@ -1,0 +1,66 @@
+# An isolated pipeline: the lead orchestrates, members never talk to each
+# other. Each step gets exactly one input artifact from the lead and returns
+# exactly one output artifact; no shared context, no works_with links between
+# workers. Skills carry the actual capability (grilling, to-spec, tdd,
+# code-review); crew only decides who runs when, with what artifact.
+version: "1"
+name: pipeline
+summary: "Grill -> spec -> tickets -> implement -> review, with isolated steps and no member-to-member messaging."
+messaging: links
+crossCrew: none
+instructions: |
+  You work in a fresh, isolated context. You receive only the input artifact
+  the lead names (a file, ticket or commit) and return only your output
+  artifact. Never message another member; report to the lead only.
+groups:
+  - id: orch
+    members:
+      - id: lead
+        provider: claude-code
+        model: claude-opus-5-5
+        lead: true
+        integrator: true
+        role: |
+          Orchestrates only, never does the work itself. Runs the steps in
+          order: grill -> spec -> tickets -> implement -> review. Starts the
+          responsible member, waits for its artifact, hands that artifact
+          (and nothing else) to the next step.
+  - id: steps
+    members:
+      - id: grill
+        provider: claude-code
+        model: claude-sonnet-5
+        skills: [grilling]
+        role: "Grills the request against the code. Output: a decisions artifact."
+      - id: spec
+        provider: claude-code
+        model: claude-sonnet-5
+        skills: [to-spec]
+        role: "Turns the decisions artifact into a spec. Output: a spec artifact."
+      - id: tickets
+        provider: claude-code
+        model: claude-sonnet-5
+        skills: [request-refactor-plan]
+        role: "Splits the spec into tickets. Output: a ticket list."
+      - id: impl
+        provider: claude-code
+        model: claude-sonnet-5
+        skills: [tdd]
+        role: "Implements exactly one ticket test-first in a fresh context. Output: a commit."
+      - id: review
+        provider: claude-code
+        model: claude-sonnet-5
+        permissions: ask
+        skills: [code-review]
+        role: "Sees only the named commit and the ticket, never the implementation context. Output: green or a list of fixes."
+links:
+  - { from: orch-lead, to: steps-grill, kind: assigns_to }
+  - { from: orch-lead, to: steps-spec, kind: assigns_to }
+  - { from: orch-lead, to: steps-tickets, kind: assigns_to }
+  - { from: orch-lead, to: steps-impl, kind: assigns_to }
+  - { from: orch-lead, to: steps-review, kind: assigns_to }
+  - { from: steps-grill, to: orch-lead, kind: escalates_to }
+  - { from: steps-spec, to: orch-lead, kind: escalates_to }
+  - { from: steps-tickets, to: orch-lead, kind: escalates_to }
+  - { from: steps-impl, to: orch-lead, kind: escalates_to }
+  - { from: steps-review, to: orch-lead, kind: escalates_to }

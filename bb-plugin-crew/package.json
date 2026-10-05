@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Crew",
-    "description": "Build a persistent agent team (crew) from a crew.yaml: members with fixed addresses nested under a lead, reconciled with apply/stop.",
+    "description": "A declarative runtime for agent workflows, from isolated pipelines to communicating teams, defined in a crew.yaml and reconciled with apply/stop.",
     "branding": {
       "icon": "./assets/icon.svg"
     },
