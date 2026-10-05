@@ -61,7 +61,10 @@
 
 .slim-nav [data-sidebar-navigation-item] > button > svg,
 .slim-nav [data-sidebar-navigation-item] > button > [data-plugin-icon-asset],
-.slim-nav [data-sidebar-navigation-item] > button > span:has(> svg) {
+.slim-nav [data-sidebar-navigation-item] > button > span:has(> svg),
+.slim-nav [data-testid="sidebar-navigation-more-row"] > button > svg,
+.slim-nav [data-testid="sidebar-navigation-more-row"] > button > [data-plugin-icon-asset],
+.slim-nav [data-testid="sidebar-navigation-more-row"] > button > span:has(> svg) {
   width: var(--slim-nav-icon);
   height: var(--slim-nav-icon);
 }
