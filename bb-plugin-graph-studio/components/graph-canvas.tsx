@@ -9,7 +9,7 @@
 // Edges are drawn along the layout's own paths rather than React Flow's, so a
 // back edge still bows out to the right and a cycle reads as a cycle. Colours
 // come from the BB theme's CSS variables, as before.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ControlButton,
   Controls,
@@ -795,14 +795,23 @@ export function colorLightness(color: string): number | null {
  * its default, React Flow paints its own chrome light — white controls and
  * surfaces inside a dark BB, which is what made the canvas look foreign.
  */
-function useHostColorMode(): [React.RefObject<HTMLDivElement | null>, ColorMode] {
+export function useHostColorMode(): [React.RefObject<HTMLDivElement | null>, ColorMode] {
   const ref = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<ColorMode>("system");
-  useLayoutEffect(() => {
+  const measure = useCallback(() => {
     if (!ref.current || typeof getComputedStyle !== "function") return;
     const lightness = colorLightness(getComputedStyle(ref.current).backgroundColor);
     if (lightness !== null) setMode(lightness < 0.5 ? "dark" : "light");
-  });
+  }, []);
+  useLayoutEffect(measure);
+  // BBP-82: BB switches the theme by class on <html> without re-rendering the
+  // plugin; measured only on render, the canvas kept the theme it opened in.
+  useEffect(() => {
+    if (typeof MutationObserver !== "function") return;
+    const observer = new MutationObserver(measure);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
+    return () => observer.disconnect();
+  }, [measure]);
   return [ref, mode];
 }
 
