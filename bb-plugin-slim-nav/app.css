@@ -38,12 +38,16 @@
   border-radius: 8px;
 }
 
-/* Keep the host's label in the accessibility tree while showing only the icon. */
+/* Keep the host's label in the accessibility tree while showing only the icon.
+   A plugin's own registered icon component (Graph Studio, Crew, …) is not a
+   bare `svg`: the host wraps it in a `span` that holds the `svg` itself, and
+   that wrapper must not be caught by this same sr-only rule — doing so once
+   clipped the whole icon to 1x1px (BBP-106). */
 .slim-nav
   [data-sidebar-navigation-item]
   > button
-  > :is(span, div):not([data-plugin-icon-asset]),
-.slim-nav [data-testid="sidebar-navigation-more-row"] > button > span {
+  > :is(span, div):not([data-plugin-icon-asset]):not(:has(> svg)),
+.slim-nav [data-testid="sidebar-navigation-more-row"] > button > span:not(:has(> svg)) {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -56,7 +60,8 @@
 }
 
 .slim-nav [data-sidebar-navigation-item] > button > svg,
-.slim-nav [data-sidebar-navigation-item] > button > [data-plugin-icon-asset] {
+.slim-nav [data-sidebar-navigation-item] > button > [data-plugin-icon-asset],
+.slim-nav [data-sidebar-navigation-item] > button > span:has(> svg) {
   width: var(--slim-nav-icon);
   height: var(--slim-nav-icon);
 }
