@@ -1,0 +1,35 @@
+# A communicating team: members talk to each other directly. Contrast with
+# pipeline.yaml, where only the lead talks to anyone. Use this topology when
+# the work genuinely benefits from a shared channel, not by default.
+version: "1"
+name: team
+summary: "Lead plans, impl and review work the same ticket side by side and escalate to each other directly."
+messaging: open
+groups:
+  - id: orch
+    members:
+      - id: lead
+        provider: claude-code
+        model: claude-opus-5-5
+        lead: true
+        integrator: true
+        role: "Plans the work, assigns tickets, merges after review, reports to the human."
+  - id: dev
+    members:
+      - id: impl
+        provider: claude-code
+        model: claude-sonnet-5
+        skills: [tdd]
+        role: "Implements the assigned ticket and asks dev-review directly when a change needs a second opinion."
+      - id: review
+        provider: claude-code
+        model: claude-sonnet-5
+        permissions: ask
+        skills: [code-review]
+        role: "Reviews dev-impl's candidate, answers its questions, and escalates blockers to the lead."
+links:
+  - { from: orch-lead, to: dev-impl, kind: assigns_to }
+  - { from: orch-lead, to: dev-review, kind: assigns_to }
+  - { from: dev-impl, to: dev-review, kind: works_with }
+  - { from: dev-review, to: dev-impl, kind: works_with }
+  - { from: dev-review, to: orch-lead, kind: escalates_to }

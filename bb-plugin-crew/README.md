@@ -1,15 +1,19 @@
 # Crew
 
-A persistent agent team for BB. A harness wraps a model; a crew wraps
+A declarative runtime for agent workflows, from isolated pipelines to
+communicating multi-agent teams. A harness wraps a model; a crew wraps
 harnesses.
 
 A crew is described in a `crew.yaml`: groups of members, each with a fixed
 address (`dev-owner@my-crew`), its own provider and model, a role and
 permissions. `bb crew apply` reconciles the file against BB threads — the
 lead's thread is the parent, every member is a child thread — and keeps doing
-so as the file changes. Members message each other, share a channel and a work
-queue, and several crews in one project coordinate through their leads, BB
-Tasks and `main`. You see who works, who waits and who needs you.
+so as the file changes. The lead orchestrates rather than doing the work
+itself: it assigns, waits, collects and hands artifacts on. Whether members
+also message each other, share a channel and a work queue is a choice in the
+file, not the default — see [Topologies](#topologies) below. Several crews in
+one project can coordinate through their leads, BB Tasks and `main`. You see
+who works, who waits and who needs you.
 
 [Graph Studio](../bb-plugin-graph-studio) describes a flow that ends; a crew is a team that stays. Both
 combine: a Graph Studio `member` node runs a step on a crew member instead of
@@ -68,6 +72,42 @@ once). `skills:` names skills to prefer, resolved against `~/.bb/skills`,
 only warns. `graphs:` names Graph Studio graphs the member may run with
 `crew_graph_run`; an unknown graph id only warns too — nothing is installed
 or validated beyond the name.
+
+## Topologies
+
+The same file format carries several shapes, chosen by the links and
+`messaging` setting, not by a separate mode:
+
+- **Isolated pipeline** — the lead assigns one artifact per step and collects
+  the result; steps never message each other (`messaging: links`, only
+  `assigns_to`/`escalates_to` links, no `works_with` between workers). Each
+  member works in a fresh, private context. This is the shape to reach for in
+  agentic coding: a reviewer that only sees the named commit, never the
+  implementer's reasoning, catches more than one that shares memory with it.
+  See `examples/pipeline.yaml`.
+- **Communicating team** — members also message each other directly
+  (`works_with` links, `messaging: open`), useful when two roles genuinely
+  need a shared back-and-forth. See `examples/team.yaml`.
+- **Hierarchical** — a lead delegates to members who never talk sideways,
+  only up and down (the `trio` template).
+- **Hybrid** — any mix: some members isolated, others sharing a channel,
+  several groups under one lead.
+
+Isolation is a design choice the format makes explicit, not an afterthought:
+a member only ever sees what the lead or its declared links hand it. Nothing
+here is specific to coding — the same topology choice applies to support
+chats, research fan-out, or any multi-step agent workflow.
+
+### The Pocock process as a crew
+
+Matt Pocock's loop — grill → spec → tickets → implement → review → retro —
+maps onto crew as an isolated pipeline: the skills (`grilling`, `to-spec`,
+`tdd`, `code-review`, …) stay the actual capabilities, crew only decides which
+member runs which skill, when, with which artifact. The lead orchestrates the
+whole process, not just the implement step; it starts a step, waits for its
+artifact, and hands exactly that artifact to the next one. `examples/pipeline.yaml`
+is this pipeline with grill, spec, tickets, implement and review as separate,
+non-communicating members.
 
 ## Running a Graph Studio graph from a member
 
