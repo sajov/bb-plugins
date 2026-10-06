@@ -9,7 +9,7 @@
 // diagram just draws several of them side by side, framed by project, with
 // task nodes derived from each crew's own ticket and its open dependencies.
 
-import { effectiveCrossCrew, type CrossCrew } from "./policy";
+import { DEFAULT_POLICY, effectiveCrossCrew, type CrossCrew } from "./policy";
 import { hasErrorReason } from "./topology";
 
 export type OverviewProject = { id: string; name: string };
@@ -168,7 +168,7 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
       for (let j = i + 1; j < overview.crews.length; j++) {
         const a = overview.crews[i]!;
         const b = overview.crews[j]!;
-        if (effectiveCrossCrew(a.crossCrew ?? "leads", b.crossCrew ?? "leads") === "none") continue;
+        if (effectiveCrossCrew(a.crossCrew ?? DEFAULT_POLICY.crossCrew, b.crossCrew ?? DEFAULT_POLICY.crossCrew) === "none") continue;
         const from = crewNodeId(project.id, a.name);
         const to = crewNodeId(project.id, b.name);
         const count = traffic.get([a.name, b.name].sort().join("\u0000")) ?? 0;

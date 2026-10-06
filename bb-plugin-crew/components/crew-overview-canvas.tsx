@@ -445,7 +445,7 @@ export function OverviewCanvas({
           as "assigns", idle lead↔lead edges as "works with", traffic on either as "messages". */}
       {/* left-14 keeps it clear of React Flow's zoom controls in the bottom-left corner. */}
       <div className="absolute bottom-2 left-14 z-10 rounded-md bg-background/80 px-2 py-1 backdrop-blur-sm">
-        <TopologyLegend kinds={["assigns_to", "works_with", ...(expanded?.links.some((link) => link.kind === "escalates_to") ? ["escalates_to"] : [])]} messages={edges.some((edge) => edge.kind === "lead-lead" && edge.active)} />
+        <TopologyLegend kinds={["assigns_to", "works_with", ...(expanded?.links.some((link) => link.kind === "escalates_to") ? ["escalates_to"] : [])]} messages={edges.some((edge) => edge.active)} />
       </div>
       {/* The opened crew's links as text: React Flow draws edges only after measuring, and screen readers need them anyway. */}
       {expanded ? (
