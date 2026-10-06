@@ -47,9 +47,11 @@ describe("buildOverviewGraph", () => {
     expect(dep).toMatchObject({ done: true });
   });
 
-  it("builds lead↔lead edges between crews of the same project", () => {
+  it("builds an active lead↔lead edge between crews of the same project when there is traffic", () => {
     const graph = buildOverviewGraph([{ id: "p1", name: "P" }], new Map([["p1", source()]]));
-    expect(graph.edges).toContainEqual(expect.objectContaining({ kind: "lead-lead", from: crewNodeId("p1", "alpha"), to: crewNodeId("p1", "beta"), count: 3 }));
+    expect(graph.edges).toContainEqual(
+      expect.objectContaining({ kind: "lead-lead", from: crewNodeId("p1", "alpha"), to: crewNodeId("p1", "beta"), count: 3, active: true }),
+    );
   });
 
   it("ignores a lead link naming a crew that doesn't exist", () => {
@@ -57,6 +59,28 @@ describe("buildOverviewGraph", () => {
       [{ id: "p1", name: "P" }],
       new Map([["p1", source({ leadLinks: [{ from: "alpha", to: "ghost", count: 1 }] })]]),
     );
+    // alpha and beta still get their policy-derived edge (default crossCrew: "leads"); none of it is traffic.
+    expect(graph.edges).toContainEqual(expect.objectContaining({ kind: "lead-lead", count: 0, active: false }));
+    expect(graph.edges.filter((edge) => edge.kind === "lead-lead")).toHaveLength(1);
+  });
+
+  it("draws an idle (grey, uncounted) lead↔lead edge from crossCrew policy alone, with no traffic yet", () => {
+    const crews = [
+      { name: "alpha", status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], labelTasks: [], crossCrew: "leads" as const },
+      { name: "beta", status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], labelTasks: [], crossCrew: "leads" as const },
+    ];
+    const graph = buildOverviewGraph([{ id: "p1", name: "P" }], new Map([["p1", source({ crews, leadLinks: [] })]]));
+    expect(graph.edges).toContainEqual(
+      expect.objectContaining({ kind: "lead-lead", from: crewNodeId("p1", "alpha"), to: crewNodeId("p1", "beta"), count: 0, active: false }),
+    );
+  });
+
+  it("draws no lead↔lead edge when either crew's crossCrew policy is none", () => {
+    const crews = [
+      { name: "alpha", status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], labelTasks: [], crossCrew: "none" as const },
+      { name: "beta", status: "idle", summary: "", task: null, branch: null, needsYou: 0, members: [], labelTasks: [], crossCrew: "open" as const },
+    ];
+    const graph = buildOverviewGraph([{ id: "p1", name: "P" }], new Map([["p1", source({ crews, leadLinks: [] })]]));
     expect(graph.edges.some((edge) => edge.kind === "lead-lead")).toBe(false);
   });
 

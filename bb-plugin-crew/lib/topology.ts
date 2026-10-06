@@ -6,7 +6,9 @@ import type { NeedsReason } from "./activity";
 export const LINK_STYLE: Record<string, { stroke: string; dash?: string; arrow: boolean; label: string }> = {
   assigns_to: { stroke: "var(--muted-foreground)", arrow: true, label: "assigns" },
   works_with: { stroke: "var(--muted-foreground)", dash: "5 4", arrow: false, label: "works with" },
-  escalates_to: { stroke: "var(--destructive)", dash: "3 3", arrow: true, label: "escalates" },
+  // BBP-97: an allowed escalation path is not a problem, so it reads amber — the same
+  // "needs a decision" tone as SEVERITY_COLOR.decision — never red (that is reserved for errors).
+  escalates_to: { stroke: "var(--warning)", dash: "3 3", arrow: true, label: "escalates" },
   can_read: { stroke: "var(--muted-foreground)", dash: "1 4", arrow: true, label: "can read" },
 };
 

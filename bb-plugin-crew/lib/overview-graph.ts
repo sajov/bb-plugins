@@ -9,6 +9,7 @@
 // diagram just draws several of them side by side, framed by project, with
 // task nodes derived from each crew's own ticket and its open dependencies.
 
+import { DEFAULT_POLICY, effectiveCrossCrew, type CrossCrew } from "./policy";
 import { hasErrorReason } from "./topology";
 
 export type OverviewProject = { id: string; name: string };
@@ -25,6 +26,8 @@ export type OverviewSource = {
     members: ReadonlyArray<{ key: string; lead: boolean; activity: string; needsYou?: readonly string[] }>;
     /** BB tasks carrying the label `crew-<name>` — the source of truth for factory crews, which never set `task` (BBP-84). */
     labelTasks?: ReadonlyArray<{ key: string; title: string; status: string }>;
+    /** The crew.yaml's `crossCrew` policy (BBP-97): who may cross-talk, before any traffic exists. Falls back to the spec default, "leads". */
+    crossCrew?: CrossCrew;
   }>;
   leadLinks: ReadonlyArray<{ from: string; to: string; count: number }>;
   dependencies: ReadonlyArray<{ crew: string; task: string; until: string; state: string; source: string | null }>;
@@ -56,7 +59,8 @@ export type TaskNode = {
 export type OverviewNode = CrewNode | TaskNode;
 
 export type TaskCrewEdge = { kind: "task-crew"; id: string; from: string; to: string; active: boolean };
-export type LeadLeadEdge = { kind: "lead-lead"; id: string; from: string; to: string; count: number };
+/** `active` is traffic (`count` > 0, drawn blue/animated); otherwise it is merely an allowed, idle path (grey dashed). */
+export type LeadLeadEdge = { kind: "lead-lead"; id: string; from: string; to: string; count: number; active: boolean };
 export type OverviewEdge = TaskCrewEdge | LeadLeadEdge;
 
 /** A project's cluster on the top zoom level: how many crews, how many run, how many wait on you. */
@@ -152,11 +156,24 @@ export function buildOverviewGraph(projects: ReadonlyArray<OverviewProject>, ove
 
     for (const task of taskIds.values()) nodes.push(task);
 
+    // BBP-97: a lead↔lead edge exists wherever the crews' `crossCrew` policies allow it (the
+    // stricter of the two wins), not only once traffic happens to have occurred. Traffic from
+    // `leadLinks` (either direction) turns an allowed-but-idle edge into an active one.
+    const traffic = new Map<string, number>();
     for (const link of overview.leadLinks) {
-      const from = crewNodeId(project.id, link.from);
-      const to = crewNodeId(project.id, link.to);
-      if (!nodes.some((node) => node.id === from) || !nodes.some((node) => node.id === to)) continue;
-      edges.push({ kind: "lead-lead", id: `${from}<->${to}`, from, to, count: link.count });
+      const key = [link.from, link.to].sort().join("\u0000");
+      traffic.set(key, (traffic.get(key) ?? 0) + link.count);
+    }
+    for (let i = 0; i < overview.crews.length; i++) {
+      for (let j = i + 1; j < overview.crews.length; j++) {
+        const a = overview.crews[i]!;
+        const b = overview.crews[j]!;
+        if (effectiveCrossCrew(a.crossCrew ?? DEFAULT_POLICY.crossCrew, b.crossCrew ?? DEFAULT_POLICY.crossCrew) === "none") continue;
+        const from = crewNodeId(project.id, a.name);
+        const to = crewNodeId(project.id, b.name);
+        const count = traffic.get([a.name, b.name].sort().join("\u0000")) ?? 0;
+        edges.push({ kind: "lead-lead", id: `${from}<->${to}`, from, to, count, active: count > 0 });
+      }
     }
 
     projectSummaries.push({

@@ -16,6 +16,7 @@ import { createTasksRpcPort } from "./lib/dependencies";
 import { z } from "zod";
 import { liveViews, type ActivityView } from "./lib/activity";
 import { reasonCounts } from "./lib/topology";
+import { DEFAULT_POLICY } from "./lib/policy";
 import { registerAgentTools, type Confirm } from "./lib/agent";
 import { CONTRACT_VERSION } from "./lib/contract";
 import { openLayout } from "./lib/layout";
@@ -153,6 +154,8 @@ const overviewSchema = z.object({
       members: z.array(z.object({ key: z.string(), lead: z.boolean(), activity: z.string(), needsYou: z.array(z.string()) })),
       /** BB tasks carrying the label `crew-<name>` (BBP-84): the factory tick never sets `task`, so this is their only link to the diagram. */
       labelTasks: z.array(z.object({ key: z.string(), title: z.string(), status: z.string() })),
+      /** `crew.yaml`'s `crossCrew` policy (BBP-97): draws the project-level lead↔lead edge even without traffic yet. */
+      crossCrew: z.enum(["leads", "open", "none"]),
     }),
   ),
   leadLinks: z.array(z.object({ from: z.string(), to: z.string(), count: z.number() })),
@@ -866,6 +869,7 @@ export default async function plugin(bb: BbPluginApi) {
           needsYou: views.filter((view) => view.needsYou.length > 0).length,
           members: views.map((view) => ({ key: view.key, lead: view.lead, activity: view.activity, needsYou: view.needsYou })),
           labelTasks,
+          crossCrew: spec?.crossCrew ?? DEFAULT_POLICY.crossCrew,
         });
       }
       const leads = new Set(crews.flatMap((crew) => store.listMembers(crew.id).filter((member) => member.lead).map((member) => member.id)));
