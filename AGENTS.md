@@ -55,6 +55,23 @@ no reinstall.
   a template's id would shadow the template, so `resolveGraph` logs a warning
   when it happens.
 
+## How work flows
+
+A new task or feature request becomes a BB task (tracker project BBP) in the
+Backlog, never direct implementation. Status `todo` is the only gate that
+releases a ticket for code — there are no process labels that steer this, and
+only top-level tickets are worked on directly.
+
+A crew picks up a `todo` ticket by holding it with a `crew-<name>` label. Open
+questions it cannot answer from the code go back on the ticket as a comment;
+the ticket returns to `todo` with label `needs-info`, and the human answers in
+the ticket. Every ticket, regardless of its kind, waits in `in_review` for the
+human to test and approve it — there is no exception by type. Work notes and
+findings are a comment on the ticket, never a file in the repository.
+
+A ticket without a crew label is read by the concierge, who answers comments
+on it but writes no code and never changes its status or labels.
+
 ## Version control
 
 Do not commit, tag, branch or push unless the task asks for it. Change files in
@@ -68,6 +85,16 @@ changes, or suggests that a state has been reviewed when nobody looked at it.
 
 Everything read-only is fine: `git status`, `git diff`, `git log`, `git blame`,
 `git show`.
+
+**Crew exception**: a crew member works in its own managed worktree and may
+commit there, on its own branch. Changes reach local `main` only through
+`crew_deliver`, merged on green checks, and only after the human has tested and
+approved the ticket — never a direct push.
+
+**`.bb/` exception**: `.bb/` is a private local git repository, not part of the
+`bb-plugins` repository and never pushed. It is changed directly in the main
+checkout, after a `FACTORY_DRY_RUN=1` tick, with a commit in the `.bb` repo
+naming the ticket key. Crews never change `.bb/` themselves (see BBP-98).
 
 ## Measure, do not estimate
 
