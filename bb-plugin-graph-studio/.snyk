@@ -1,0 +1,8 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.25.0
+ignore:
+  SNYK-JS-ZOD-20510278:
+    - '*':
+        reason: 'No upstream fix: latest zod 4.6.5 is affected (checked 2026-10-06)'
+        expires: 2026-11-05T00:00:00.000Z
+patch: {}
