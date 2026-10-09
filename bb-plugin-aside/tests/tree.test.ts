@@ -5,6 +5,7 @@ import type {
 } from "@get-bb/plugin-sdk/app";
 import {
   countFamilies,
+  countWorkingFamilies,
   displayOrder,
   latestActivity,
   moveInOrder,
@@ -323,6 +324,29 @@ describe("the number in the header", () => {
 
   it("is 0 when there really is nothing", () => {
     expect(countFamilies([])).toBe(0);
+  });
+});
+
+describe("countWorkingFamilies", () => {
+
+  it("counts families with a working member, once per family", () => {
+    const busy = thread({ id: "a", projectId: "p1", indicator: "runtime" });
+    const kid = thread({ id: "kid", projectId: "p1", parentThreadId: "a", indicator: "runtime" });
+    const idle = thread({ id: "b", projectId: "p1" });
+    const blocks = groupThreads([busy, kid, idle], [project("p1")], options);
+    expect(countWorkingFamilies(blocks)).toBe(1);
+  });
+
+  it("counts a family whose child works while the root waits", () => {
+    const root = thread({ id: "a", projectId: "p1", hasPendingInteraction: true });
+    const kid = thread({ id: "kid", projectId: "p1", parentThreadId: "a", indicator: "runtime" });
+    const blocks = groupThreads([root, kid], [project("p1")], options);
+    expect(countWorkingFamilies(blocks)).toBe(1);
+  });
+
+  it("is 0 when nothing runs", () => {
+    const blocks = groupThreads([thread({ id: "a", projectId: "p1" })], [project("p1")], options);
+    expect(countWorkingFamilies(blocks)).toBe(0);
   });
 });
 

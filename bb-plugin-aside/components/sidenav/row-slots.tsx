@@ -115,3 +115,65 @@ export function RowTail({
     </div>
   );
 }
+
+/**
+ * The header's count: all families, and — while anything runs — how many of
+ * them are processing, as "5/29" behind the same spinner the cards use.
+ *
+ * The same badge as every other count rather than a second one beside it, so
+ * the header still reads as one number. With nothing running it falls back to
+ * the plain total; "0/29" would only be noise.
+ *
+ * The spinner turns blue while any thread waits for you — the colour the
+ * "needs you" mark already carries — so a glance at the header tells you
+ * whether the busy work is also blocked on you.
+ */
+export function WorkingCount({
+  working,
+  waiting,
+  total,
+}: {
+  working: number;
+  waiting: number;
+  total: number;
+}): ReactNode {
+  if (working === 0 && waiting === 0) return <RowCount count={total} open />;
+  const label = [
+    `${working} of ${total} threads processing`,
+    waiting > 0 ? `${waiting} waiting for you` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className={cn("shrink-0 grid-flow-col gap-1", COUNT_BADGE_SHAPE, countBadgeClass(true))}
+    >
+      <svg viewBox="0 0 14 14" fill="none" className="size-2.5" aria-hidden>
+        <circle
+          cx="7"
+          cy="7"
+          r="4.6"
+          className={cn(
+            "origin-center animate-spin motion-reduce:animate-none",
+            waiting > 0 ? "text-[color:var(--primary,#006fee)]" : "text-muted-foreground",
+          )}
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeDasharray="7.2 4.4"
+          style={{ animationDuration: "1.6s" }}
+        />
+      </svg>
+      {working > 0 ? (
+        <span>
+          <span className="text-foreground">{working}</span>/{total}
+        </span>
+      ) : (
+        <span>{total}</span>
+      )}
+    </span>
+  );
+}

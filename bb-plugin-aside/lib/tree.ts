@@ -412,6 +412,27 @@ export function countFamilies(blocks: readonly ProjectBlock[]): number {
 }
 
 /**
+ * How many of those families are processing right now — the numerator beside
+ * {@link countFamilies} in the header.
+ *
+ * A family counts when any member works, not when its rolled-up state is
+ * "working": a failed or waiting sibling outranks the spinner on the card, but
+ * the agent next to it is still running and still belongs in this number.
+ */
+export function countWorkingFamilies(blocks: readonly ProjectBlock[]): number {
+  return blocks.reduce(
+    (sum, block) =>
+      sum + block.families.filter((family) => familyMembers(family).some(isWorking)).length,
+    0,
+  );
+}
+
+/** How many families have a member waiting for you — tints the header spinner. */
+export function countWaitingFamilies(blocks: readonly ProjectBlock[]): number {
+  return blocks.reduce((sum, block) => sum + block.families.filter(familyWaits).length, 0);
+}
+
+/**
  * The newest activity across a set of families, children included.
  *
  * `null` means there is nothing to date — an empty project. Children count on

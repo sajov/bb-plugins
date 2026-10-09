@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import type { rpcContract } from "@/server";
 import {
   countFamilies,
+  countWaitingFamilies,
+  countWorkingFamilies,
   displayOrder,
   familyState,
   latestActivity,
@@ -56,7 +58,7 @@ import { ProjectRow } from "@/components/sidenav/project-row";
 import { SectionRow } from "@/components/sidenav/section-row";
 import { StateMark } from "@/components/sidenav/marks";
 import { Icon } from "@/components/ui/icon";
-import { RowCount } from "@/components/sidenav/row-slots";
+import { RowCount, WorkingCount } from "@/components/sidenav/row-slots";
 import {
   ThreadCard,
   type CardCallbacks,
@@ -310,6 +312,8 @@ export function Sidenav({
   const providerMap = useMemo(() => buildProviderMap(providers), [providers]);
   const waiting = useMemo(() => waitingThreads(threads), [threads]);
   const threadCount = useMemo(() => countFamilies(blocks), [blocks]);
+  const workingCount = useMemo(() => countWorkingFamilies(blocks), [blocks]);
+  const waitingCount = useMemo(() => countWaitingFamilies(blocks), [blocks]);
   const pinned = useMemo(
     () => (view.pinnedGroup ? pinnedFamilies(blocks) : []),
     [blocks, view.pinnedGroup],
@@ -599,7 +603,7 @@ export function Sidenav({
         {/* The header counts like every other row does. It was the one bare
             number left in the list, which made it read as a different kind of
             thing than the identical count on a project. */}
-        <RowCount count={threadCount} open />
+        <WorkingCount working={workingCount} waiting={waitingCount} total={threadCount} />
         <span className="flex-1" />
         {/* Three zones: find · order and display · actions. */}
         <SearchToggle
