@@ -706,7 +706,7 @@ export function Sidenav({
               : pinned.map(({ family, project }) => (
                   <ThreadCard
                     key={`pinned:${family.root.id}`}
-                    family={{ root: family.root, children: [] }}
+                    family={family}
                     providers={providerMap}
                     sections={sections}
                     activeThreadId={activeThreadId}

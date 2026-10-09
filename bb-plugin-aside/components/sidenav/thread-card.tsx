@@ -321,7 +321,7 @@ export function ThreadCard({
                 {threadTitle(root)}
               </span>
             )}
-            {children.length > 0 ? (
+            {children.length > 0 && pinnedIn === undefined ? (
               <RowCount
                 count={children.length}
                 open={childrenOpen}
