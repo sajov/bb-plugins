@@ -8,6 +8,11 @@ model catalogs, download logic, sherpa-onnx engines and speech text filter do
 the heavy lifting here. Its terminal UI was not ported; BB's own surfaces
 replace it.
 
+> **macOS first.** Developed and tested on macOS (Apple Silicon) only. Linux
+> should work but has not been tried; Windows has not been tried either and is
+> the least likely to work as-is. See [Requirements](#requirements) before you
+> start.
+
 ## What it does
 
 **Speech to text.** BB hands its transcription over to a plugin, so the
@@ -19,6 +24,39 @@ from a 43 MB one that runs on a Raspberry Pi to Whisper Large.
 answer is not speakable material — headings, code fences, file paths — so by
 default the answer first goes through a hidden thread that condenses it to two
 or three plain sentences, and *that* is what you hear.
+
+## Requirements
+
+**Platforms.**
+
+| Platform | Status |
+| --- | --- |
+| macOS, Apple Silicon | developed and tested here |
+| macOS, Intel | not tried |
+| Linux (glibc, 64-bit) | should work — same tools, same paths — but not tried |
+| Linux on Alpine (musl) or 32-bit ARM | not supported: no sherpa-onnx build; the setup page says so |
+| Windows | not tried and least likely to work: voice archives are unpacked with `tar -xj`, and the error hints assume Homebrew |
+
+**Tools on the machine.** The plugin calls these, it does not bring them:
+
+| | Needed for | If missing |
+| --- | --- | --- |
+| `ffmpeg` | decoding BB's recordings | transcription fails with a message naming it |
+| `node` | speaking | speaking fails; recognition still works |
+| `npm` | installing the runtime once | the setup page's install button fails |
+| `tar` (with bzip2) | unpacking a voice | voice installs fail |
+
+On macOS with [Homebrew](https://brew.sh):
+
+```sh
+brew install ffmpeg node   # node brings npm; tar is part of macOS
+```
+
+On Debian/Ubuntu: `sudo apt install ffmpeg nodejs npm bzip2`.
+
+BB's daemon may not see your shell's `PATH`. For `node` the plugin also checks
+`/opt/homebrew/bin`, `/usr/local/bin` and `/usr/bin`. The setup page shows
+which tools it found, so a missing one is visible before it bites.
 
 ## Setup
 
@@ -38,8 +76,9 @@ Open the plugin's settings page in BB and work down it:
    `bb settings ai-services show` confirms it. The model is the one chosen in
    the plugin's settings.
 
-4. **For speaking**, install a voice in the same page. Match the voice to your language — a German voice refuses
-   English text rather than mangling it.
+4. **For speaking**, install a voice in the same page. Match the voice to
+   your language — a German voice refuses English text rather than mangling
+   it.
 
 ## Speaking, per thread
 
@@ -104,22 +143,7 @@ without ending a real turn:
 bb listen condense "some long answer text"
 ```
 
-### What has to be on the machine
-
-| | Needed for | If missing |
-| --- | --- | --- |
-| `ffmpeg` | decoding BB's recordings | transcription fails with a message naming it |
-| `node` | speaking | speaking fails; recognition still works |
-| `npm` | installing the runtime once | the setup page's install button fails |
-| `tar` | unpacking a voice | voice installs fail |
-
-The setup page shows which of these it found, so a missing one is visible
-before it bites.
-
-**Platforms.** Developed and tested on macOS (Apple Silicon). Linux should work
-— the same tools, the same paths — but has not been tried. Windows has not
-been tried either and is the least likely to work as-is: voice archives are
-unpacked with `tar -xj`, which Windows only gained recently.
+### Why Node
 
 Node is needed because BB's own binary is Electron, and Electron's V8 refuses
 the externally-backed audio buffers sherpa returns. Synthesis therefore runs in
