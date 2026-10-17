@@ -4,7 +4,7 @@
 // and what a row and the window's buttons do.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { clampBox, MIN_SIZE, shownBox, terminalLines, ToolCallTerminal } from "../components/terminal";
+import { clampBox, clock, MIN_SIZE, shownBox, terminalLines, ToolCallTerminal } from "../components/terminal";
 import type { CanvasNode } from "../vendor/bb-canvas/lib/types";
 
 afterEach(() => {
@@ -50,12 +50,12 @@ describe("terminalLines", () => {
 });
 
 describe("terminalLines with loaded calls", () => {
-  const loaded = (id: string, at: number | undefined, threadId = "z"): CanvasNode => ({
+  const loaded = (id: string, at: number | undefined, threadId = "z", sourceSeq?: number): CanvasNode => ({
     id,
     kind: "tool-call",
     label: id,
     parentId: "turn:z",
-    meta: { threadId, ...(at === undefined ? {} : { startedAtMs: at }) },
+    meta: { threadId, ...(at === undefined ? {} : { startedAtMs: at }), ...(sourceSeq === undefined ? {} : { sourceSeq }) },
   });
 
   it("merges them with the canvas's, oldest first, each call once", () => {
@@ -71,9 +71,47 @@ describe("terminalLines with loaded calls", () => {
     expect(lines.every((line) => line.thread === undefined)).toBe(true);
   });
 
-  it("negative: calls without a time keep their order, after the timed ones", () => {
-    const { lines } = terminalLines([], null, [loaded("a", undefined), loaded("b", 3), loaded("c", undefined)]);
+  // BBP-320 follow-up: file edits and subagents come without a start.
+  it("places an untimed call after the call before it in its thread, across threads", () => {
+    const calls = [loaded("b", 20, "z", 3), loaded("x", 15, "y", 1), loaded("e", undefined, "z", 2), loaded("a", 10, "z", 1)];
+    expect(terminalLines([], null, calls).lines.map((line) => line.id)).toEqual(["a", "e", "x", "b"]);
+  });
+
+  it("an untimed call first in its thread takes the start of the call after it", () => {
+    const calls = [loaded("x", 15, "y", 1), loaded("b", 20, "z", 2), loaded("e", undefined, "z", 1)];
+    expect(terminalLines([], null, calls).lines.map((line) => line.id)).toEqual(["x", "e", "b"]);
+  });
+
+  it("negative: calls without any time in their thread keep their load order, after the timed ones", () => {
+    const { lines } = terminalLines([], null, [loaded("a", undefined, "q"), loaded("b", 3), loaded("c", undefined, "r")]);
     expect(lines.map((line) => line.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("shows the clock time BB recorded, and none for a borrowed one", () => {
+    const at = new Date(2026, 9, 17, 9, 5, 7).getTime();
+    const { lines } = terminalLines([], null, [loaded("a", at, "z", 1), loaded("e", undefined, "z", 2)]);
+    expect(lines.map((line) => line.time)).toEqual(["09:05:07", undefined]);
+  });
+
+  it("orders a selected thread's calls by time too", () => {
+    const thread: CanvasNode[] = [
+      { id: "t", kind: "thread", label: "T", parentId: null },
+      { id: "late", kind: "tool-call", label: "late", parentId: "t", meta: { startedAtMs: 20 } },
+      { id: "early", kind: "tool-call", label: "early", parentId: "t", meta: { startedAtMs: 10 } },
+    ];
+    expect(terminalLines(thread, "t").lines.map((line) => line.id)).toEqual(["early", "late"]);
+  });
+});
+
+describe("clock", () => {
+  const now = new Date(2026, 9, 17, 12, 0, 0).getTime();
+
+  it("shows a call from an earlier day with its date", () => {
+    expect(clock(new Date(2026, 9, 16, 23, 54, 30).getTime(), now)).toBe("10-16 23:54");
+  });
+
+  it("negative: today's call shows no date, only the time with seconds", () => {
+    expect(clock(new Date(2026, 9, 17, 9, 5, 7).getTime(), now)).toBe("09:05:07");
   });
 });
 

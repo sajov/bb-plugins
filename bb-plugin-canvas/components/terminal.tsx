@@ -64,7 +64,58 @@ export type TerminalLine = {
   key: TypeColorKey;
   /** The call's thread, named while the terminal shows every thread. */
   thread?: string;
+  /** When it started, local: `HH:MM:SS` today, `MM-DD HH:MM` on an earlier
+   *  day — only a time BB recorded, never one borrowed for ordering. */
+  time?: string;
+  /** The full date and time, for the time's tooltip. */
+  timeFull?: string;
 };
+
+const ownStart = (node: CanvasNode): number | null =>
+  typeof node.meta?.startedAtMs === "number" ? node.meta.startedAtMs : null;
+
+const pad = (part: number) => String(part).padStart(2, "0");
+
+/** The terminal spans days ("All" time window), so a call from another day
+ *  carries its date; today's keep the seconds, which tell close calls apart. */
+export function clock(ms: number, now: number = Date.now()): string {
+  const date = new Date(ms);
+  const today = new Date(now);
+  const sameDay = date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
+  if (sameDay) return [date.getHours(), date.getMinutes(), date.getSeconds()].map(pad).join(":");
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fullTime(ms: number): string {
+  const date = new Date(ms);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock(ms, ms)}`;
+}
+
+/** Oldest first, in both views. BB records no start for some calls (file
+ *  edits, subagents), which then sank to the end or stayed where they were
+ *  loaded: inside a thread its event sequence is the true order, and an
+ *  untimed call takes the start of the call before it — or, first in its
+ *  thread, the one after. */
+export function chronological(calls: readonly CanvasNode[]): CanvasNode[] {
+  const seq = (node: CanvasNode) => (typeof node.meta?.sourceSeq === "number" ? node.meta.sourceSeq : null);
+  const indexed = calls.map((node, index) => ({ node, index, at: ownStart(node) }));
+  const byThread = new Map<string, typeof indexed>();
+  for (const entry of indexed) {
+    const thread = typeof entry.node.meta?.threadId === "string" ? entry.node.meta.threadId : "";
+    byThread.set(thread, [...(byThread.get(thread) ?? []), entry]);
+  }
+  for (const list of byThread.values()) {
+    list.sort((a, b) => (seq(a.node) ?? a.index) - (seq(b.node) ?? b.index) || a.index - b.index);
+    let last: number | null = null;
+    for (const entry of list) entry.at === null ? (entry.at = last) : (last = entry.at);
+    let next: number | null = null;
+    for (const entry of [...list].reverse()) entry.at === null ? (entry.at = next) : (next = entry.at);
+  }
+  const order = new Map([...byThread.values()].flatMap((list) => list.map((entry, rank) => [entry, rank] as const)));
+  return indexed
+    .sort((a, b) => (a.at ?? Infinity) - (b.at ?? Infinity) || (a.at === null ? a.index - b.index : order.get(a)! - order.get(b)!))
+    .map(({ node }) => node);
+}
 
 /** The node's thread: itself if it is one, else the nearest thread above it. */
 function threadOf(byId: ReadonlyMap<string, CanvasNode>, id: string | null): string | null {
@@ -75,10 +126,9 @@ function threadOf(byId: ReadonlyMap<string, CanvasNode>, id: string | null): str
 
 const isCall = (node: CanvasNode) => node.kind === "tool-call" || node.kind === "subagent";
 
-/** With a selection inside a thread: that thread's tool calls on the canvas,
- *  in canvas order. With none: every call — on the canvas and the `extra`
- *  ones loaded for the threads it shows — oldest first, each named by its
- *  thread. */
+/** With a selection inside a thread: that thread's tool calls on the canvas.
+ *  With none: every call — on the canvas and the `extra` ones loaded for the
+ *  threads it shows — each named by its thread. Oldest first either way. */
 export function terminalLines(
   nodes: readonly CanvasNode[],
   selectedId: string | null,
@@ -92,16 +142,15 @@ export function terminalLines(
   else {
     const seen = new Set<string>();
     calls = [...extra, ...nodes.filter(isCall)].filter((node) => isCall(node) && !seen.has(node.id) && Boolean(seen.add(node.id)));
-    const at = (node: CanvasNode) => (typeof node.meta?.startedAtMs === "number" ? node.meta.startedAtMs : Number.POSITIVE_INFINITY);
-    // Stable: calls without a time keep their order, after the timed ones.
-    calls = calls.map((node, index) => ({ node, index })).sort((a, b) => at(a.node) - at(b.node) || a.index - b.index).map(({ node }) => node);
   }
+  calls = chronological(calls);
   const longest = Math.max(0, ...calls.map((node) => durationMs(node.meta?.duration) ?? 0));
   const lines = calls.map((node): TerminalLine => {
     const key = typeKey(node);
     const ms = durationMs(node.meta?.duration);
     const command = typeof node.meta?.command === "string" && node.meta.command !== "" ? node.meta.command : node.label;
     const running = node.status === "running";
+    const start = ownStart(node);
     return {
       id: node.id,
       key,
@@ -111,6 +160,7 @@ export function terminalLines(
       detail: running ? "running" : typeof node.meta?.duration === "string" ? node.meta.duration : "",
       running,
       bar: ms !== null && longest > 0 ? ms / longest : null,
+      ...(start !== null ? { time: clock(start), timeFull: fullTime(start) } : {}),
       ...(scopeId === null && typeof node.meta?.threadId === "string" ? { thread: threadLabel(node.meta.threadId) } : {}),
     };
   });
@@ -304,8 +354,9 @@ export function ToolCallTerminal({ nodes, extraCalls = [], threadLabel, selected
                 aria-current={line.id === selectedId ? "true" : undefined}
                 title={line.text}
                 className={`grid w-full items-center gap-2 px-2.5 text-left ${line.id === selectedId ? "bg-primary/15" : "hover:bg-muted"}`}
-                style={{ gridTemplateColumns: "48px minmax(0,1fr) 72px 48px", height: ROW_HEIGHT }}
+                style={{ gridTemplateColumns: "80px 48px minmax(0,1fr) 72px 48px", height: ROW_HEIGHT }}
               >
+                <span className="tabular-nums text-muted-foreground" title={line.timeFull}>{line.time ?? ""}</span>
                 <span className="font-semibold" style={{ color: line.color }}>
                   {line.tag}
                 </span>
