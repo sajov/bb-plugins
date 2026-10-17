@@ -1,4 +1,4 @@
-# bb-plugin-canvas
+# bb-plugin-constellation
 
 A **Canvas** nav entry for BB: every thread BB lists — chat threads included —
 as one navigable tree under Agents → project → thread. Runs on its own; Crew

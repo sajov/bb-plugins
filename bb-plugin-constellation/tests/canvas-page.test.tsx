@@ -27,7 +27,7 @@ const row = (id: string, projectId: string, title: string | null, extra: { statu
 });
 
 function canvasPanel(sdk: Record<string, unknown>, settings?: Record<string, number>) {
-  const panel = app.navPanels.find((entry) => entry.id === "canvas")!;
+  const panel = app.navPanels.find((entry) => entry.id === "constellation")!;
   // No live events unless a test brings its own `subscribe`.
   const withLive = { subscribe: () => () => {}, ...sdk };
   return renderSlot(panel, { subPath: "" }, { context: { projectId: null, threadId: null }, sdk: withLive as never, ...(settings ? { settings } : {}) });
@@ -35,7 +35,7 @@ function canvasPanel(sdk: Record<string, unknown>, settings?: Record<string, num
 
 describe("the Canvas nav page", () => {
   it("has a nav entry titled Canvas", () => {
-    expect(app.navPanels.map((entry) => [entry.id, entry.title])).toContainEqual(["canvas", "Canvas"]);
+    expect(app.navPanels.map((entry) => [entry.id, entry.title])).toContainEqual(["constellation", "Constellation"]);
   });
 
   it("shows every thread, a plain chat thread included, under Agents → its project", async () => {
@@ -247,11 +247,11 @@ describe("the Canvas chat tab and thread panel action", () => {
   });
 
   it("registers a thread panel action titled Canvas", () => {
-    expect(app.threadPanelActions.map((entry) => [entry.id, entry.title])).toContainEqual(["canvas", "Canvas"]);
+    expect(app.threadPanelActions.map((entry) => [entry.id, entry.title])).toContainEqual(["constellation", "Constellation"]);
   });
 
   const threadPanel = (threadId: string, threads: unknown[]) => {
-    const action = app.threadPanelActions.find((entry) => entry.id === "canvas")!;
+    const action = app.threadPanelActions.find((entry) => entry.id === "constellation")!;
     return renderSlot(action, { threadId, params: null }, { context: { projectId: "p1", threadId }, sdk: { subscribe: () => () => {}, ...sdk(threads) } as never });
   };
 
@@ -286,7 +286,7 @@ describe("the Canvas chat tab and thread panel action", () => {
   });
 
   it("focuses a thread named in the nav page's sub-path", async () => {
-    const panel = app.navPanels.find((entry) => entry.id === "canvas")!;
+    const panel = app.navPanels.find((entry) => entry.id === "constellation")!;
     renderSlot(panel, { subPath: "thread/t2" }, { context: { projectId: null, threadId: null }, sdk: { subscribe: () => () => {}, ...sdk([row("t1", "p1", "Other"), row("t2", "p1", "Mine")]) } as never });
     expect(await screen.findByRole("button", { name: /^Mine — / })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Other — / })).toBeNull();
@@ -729,7 +729,7 @@ describe("the Canvas turn limit counts real turns only (BBP-298)", () => {
 
 describe("the Canvas shows crews from the crew plugin (BBP-190)", () => {
   it("hangs a crew under its project and draws its member as its thread", async () => {
-    const panel = app.navPanels.find((entry) => entry.id === "canvas")!;
+    const panel = app.navPanels.find((entry) => entry.id === "constellation")!;
     const layer = {
       nodes: [
         { id: "crew:f1", kind: "crew", label: "factory-1", parentId: "project:p1", meta: { crew: "factory-1" } },

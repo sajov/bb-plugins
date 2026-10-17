@@ -1,4 +1,4 @@
-// bb-plugin-canvas — backend entry.
+// bb-plugin-constellation — backend entry.
 //
 // The page reads threads and projects straight from the SDK in the frontend;
 // the backend only declares the overview window's settings (BBP-287, same

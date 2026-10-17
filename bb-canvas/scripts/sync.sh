@@ -12,14 +12,14 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 plugins=("$@")
-[ ${#plugins[@]} -eq 0 ] && plugins=(bb-plugin-graph-studio bb-plugin-crew bb-plugin-canvas)
+[ ${#plugins[@]} -eq 0 ] && plugins=(bb-plugin-graph-studio bb-plugin-crew bb-plugin-constellation)
 
 for plugin in "${plugins[@]}"; do
   target="$root/$plugin/vendor/bb-canvas"
   rm -rf "$target"
   mkdir -p "$target"
   dirs=(lib)
-  [ "$plugin" = bb-plugin-canvas ] && dirs=(lib components)
+  [ "$plugin" = bb-plugin-constellation ] && dirs=(lib components)
   for dir in "${dirs[@]}"; do
     cp -R "$root/bb-canvas/$dir" "$target/$dir"
   done

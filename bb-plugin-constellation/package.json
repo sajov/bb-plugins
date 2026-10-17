@@ -1,15 +1,16 @@
 {
-  "name": "bb-plugin-canvas",
+  "name": "bb-plugin-constellation",
   "version": "0.1.0",
   "description": "Every BB thread as one navigable tree: Agents, projects, threads.",
   "author": "sajov",
   "repository": {
     "type": "git",
     "url": "https://github.com/sajov/bb-plugins.git",
-    "directory": "bb-plugin-canvas"
+    "directory": "bb-plugin-constellation"
   },
   "keywords": [
     "bb-plugin",
+    "constellation",
     "canvas",
     "threads",
     "agents"
@@ -20,7 +21,7 @@
     "bbPluginSdk": ">=0.6.15"
   },
   "bb": {
-    "name": "Canvas",
+    "name": "Constellation",
     "description": "Every thread in BB, chat threads included, as one navigable tree under Agents and its project.",
     "branding": {
       "icon": "./assets/icon.svg"
