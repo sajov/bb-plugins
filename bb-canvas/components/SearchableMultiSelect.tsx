@@ -3,7 +3,7 @@
 // placement, outside click, search and stopping key events from reaching
 // the canvas's own shortcuts.
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { placePopover } from "../lib/popover";
+import { placePopover, visibleBounds } from "../lib/popover";
 
 export type SearchableMultiSelectOption = {
   id: string;
@@ -96,9 +96,7 @@ export function SearchableMultiSelect({
   useLayoutEffect(() => {
     if (!open || !root.current) return;
     const anchor = root.current.getBoundingClientRect();
-    const canvas = root.current.closest("[data-canvas-view]")?.getBoundingClientRect();
-    const bounds = canvas && canvas.width > 0 ? canvas : { left: 0, right: window.innerWidth };
-    setPlace(placePopover(anchor, bounds, POPOVER_WIDTH));
+    setPlace(placePopover(anchor, visibleBounds(root.current), POPOVER_WIDTH));
   }, [open]);
 
   useLayoutEffect(() => {
