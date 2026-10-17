@@ -22,6 +22,11 @@ import {
   voiceStateSchema,
 } from "./contract.js";
 import { shouldSpeak, speaksAloud, spokenText } from "./lib/speech/decide.js";
+import {
+  DEFAULT_SUMMARY_PROMPT,
+  LANGUAGE_PLACEHOLDER,
+  buildSummaryPrompt,
+} from "./lib/speech/summary-prompt.js";
 import { condenseWithApi, CondenseApiError } from "./lib/speech/condense-api.js";
 import { previewText } from "./lib/speech/preview-text.js";
 import { isSelectedForVoice, selectCommand, transcriptOrThrow } from "./lib/ai-service.js";
@@ -35,24 +40,6 @@ const CHANGED = "listen-changed";
 /** Realtime channel that tells the app a clip is ready to play. */
 const SPEAK = "listen-speak";
 
-/**
- * What the hidden thread is told, unless the user replaced it.
- *
- * A setting rather than a constant because what makes a good spoken summary
- * is a matter of taste and of what you work on: someone reviewing prose wants
- * different emphasis than someone watching a refactor.
- */
-export const DEFAULT_SUMMARY_PROMPT = [
-  "Summarize the assistant message below for text-to-speech.",
-  "",
-  "Rules:",
-  "- Two or three sentences, no more.",
-  "- Plain spoken prose: no markdown, no lists, no code, no headings, no URLs.",
-  "- Say what was done or found and what it means. Skip file names, commands and numbers unless they are the point.",
-  "- Answer with the summary alone, nothing else.",
-  "",
-  "Message:",
-].join("\n");
 
 /**
  * What the composer's speaker button renders from. `available` is false while
@@ -210,12 +197,19 @@ export default async function plugin(bb: BbPluginApi) {
       secret: true,
       description: "API route only. Leave empty for local servers, which need none.",
     },
+    summaryLanguage: {
+      type: "string",
+      label: "Summary language",
+      description:
+        "BCP-47 tag such as de, en or fr the spoken summary is written in. Empty follows the spoken language. Pick a voice that speaks it.",
+      default: "",
+    },
     summaryPrompt: {
       type: "string",
       label: "Condensing prompt",
       experimental_multiline: true,
       description:
-        "What the hidden thread is told. The answer is appended below it. Leave empty to use the built-in prompt.",
+        `What the hidden thread is told. The answer is appended below it. ${LANGUAGE_PLACEHOLDER} becomes the summary language. Leave empty to use the built-in prompt.`,
       default: DEFAULT_SUMMARY_PROMPT,
     },
     voiceModel: {
@@ -504,10 +498,10 @@ export default async function plugin(bb: BbPluginApi) {
         const summary = values.summarize
           ? await condense(answer, {
               projectId: thread.projectId,
-              prompt:
-                values.summaryPrompt.trim() === ""
-                  ? DEFAULT_SUMMARY_PROMPT
-                  : values.summaryPrompt,
+              prompt: buildSummaryPrompt(
+                values.summaryPrompt,
+                values.summaryLanguage.trim() || values.language,
+              ),
             })
           : null;
         const spoken = spokenText(summary, answer, values.language);
@@ -763,10 +757,10 @@ export default async function plugin(bb: BbPluginApi) {
           const project = await currentProjectId();
           const summary = await condense(text, {
             projectId: project,
-            prompt:
-              values.summaryPrompt.trim() === ""
-                ? DEFAULT_SUMMARY_PROMPT
-                : values.summaryPrompt,
+            prompt: buildSummaryPrompt(
+              values.summaryPrompt,
+              values.summaryLanguage.trim() || values.language,
+            ),
           });
           const seconds = ((Date.now() - started) / 1000).toFixed(1);
           // Show what would actually be *spoken*, not the raw reply: the
