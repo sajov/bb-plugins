@@ -242,8 +242,18 @@ export function Sidenav({
 
   // Projects as their own filter entries, offered under the tags.
   const knownProjects = useMemo(
-    () => projects.map((project) => ({ id: project.id, name: project.name })),
-    [projects],
+    () => {
+      const perProject = new Map<string, number>();
+      for (const thread of threads) {
+        perProject.set(thread.projectId, (perProject.get(thread.projectId) ?? 0) + 1);
+      }
+      return projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        count: perProject.get(project.id) ?? 0,
+      }));
+    },
+    [projects, threads],
   );
   const projectIds = useMemo(() => projects.map((project) => project.id), [projects]);
   // A renamed project keeps its pick (ids, not names); a deleted one is
@@ -515,11 +525,12 @@ export function Sidenav({
       .finally(() => setDeleting(false));
   }, [leaveSelection, plan.chosen, report, rpc]);
 
-  // Closing clears: a query left behind in a closed field would keep narrowing
-  // the list with no field on screen to explain it.
+  // Closing keeps what is typed: it is a filter like a picked tag, and the
+  // scope bar names it with its own ✕. Only a bare `#` is dropped — it was a
+  // question to the flyout, not a filter.
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
-    setQuery("");
+    setQuery((current) => (tagPrefix(current) === null ? current : ""));
   }, []);
 
   // ⌥F opens the slot and puts the caret in it. Same ⌥ family as the fold
@@ -610,7 +621,7 @@ export function Sidenav({
   if (status === "loading") return null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="relative flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border-hairline px-3">
         <span className="text-xs font-semibold text-muted-foreground">Workspaces</span>
         {/* The header counts like every other row does. It was the one bare
@@ -654,7 +665,6 @@ export function Sidenav({
           focusTick={searchFocus}
           onQuery={setQuery}
           onClose={closeSearch}
-          knownTags={knownTags}
           tagCounts={counts}
           activeTags={tagFilter}
           onToggleTag={(tag) => patchView({ tagFilter: toggleId(tagFilter, tag) })}
@@ -663,6 +673,7 @@ export function Sidenav({
           onToggleProject={(projectId) =>
             patchView({ projectFilter: toggleId(projectFilter, projectId) })
           }
+          onClearAll={clearAllScopes}
         />
       ) : null}
 

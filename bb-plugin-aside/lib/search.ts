@@ -87,3 +87,58 @@ export function tagSuggestions(
       !active.includes(tag) && (prefix === null || fold(tag).startsWith(prefix)),
   );
 }
+
+/** One row of the search flyout: a project or a tag, never both. */
+export type FlyoutEntry =
+  | { kind: "project"; id: string; name: string; count: number; picked: boolean }
+  | { kind: "tag"; id: string; name: string; count: number; picked: boolean };
+
+/**
+ * The flyout's one list: projects first, then tags, each by count (most used
+ * first) and then by name. The query narrows both; a `#` query narrows to tags
+ * only, by prefix. Picked entries stay where they are, so a click never makes
+ * the row under the pointer jump away.
+ */
+export function flyoutEntries({
+  query,
+  projects,
+  tagCounts,
+  activeProjects,
+  activeTags,
+}: {
+  query: string;
+  projects: readonly { id: string; name: string; count: number }[];
+  tagCounts: Readonly<Record<string, number>>;
+  activeProjects: readonly string[];
+  activeTags: readonly string[];
+}): FlyoutEntry[] {
+  const prefix = tagPrefix(query);
+  const byCount = (left: { count: number; name: string }, right: { count: number; name: string }) =>
+    right.count - left.count || left.name.localeCompare(right.name);
+  const projectRows: FlyoutEntry[] =
+    prefix !== null
+      ? []
+      : projects
+          .filter((project) => matchesQuery(project.name, query))
+          .map((project) => ({
+            kind: "project" as const,
+            id: project.id,
+            name: project.name,
+            count: project.count,
+            picked: activeProjects.includes(project.id),
+          }))
+          .sort(byCount);
+  const tagRows: FlyoutEntry[] = Object.entries(tagCounts)
+    .filter(([tag]) =>
+      prefix !== null ? fold(tag).startsWith(prefix) : matchesQuery(tag, query),
+    )
+    .map(([tag, count]) => ({
+      kind: "tag" as const,
+      id: tag,
+      name: tag,
+      count,
+      picked: activeTags.includes(tag),
+    }))
+    .sort(byCount);
+  return [...projectRows, ...tagRows];
+}
