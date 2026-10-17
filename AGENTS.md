@@ -9,7 +9,7 @@ tooling on top — they share no dependency.
 | `bb-plugin-crew` | `crew` | persistent agent teams, new, 364 tests |
 | `bb-plugin-aside` | `aside` | sidenav replacement, 176 tests |
 | `bb-plugin-listen` | `listen` | offline speech in and out, 77 tests |
-| `bb-plugin-slim-nav` | `slim-nav` | finished, resting, no tests |
+| `bb-plugin-slim-nav` | `slim-nav` | deprecated, not maintained |
 | `bb-plugin-recall` | `recall` | semantic search over threads and tasks via qmd, new, 50 tests |
 | `bb-plugin-canvas` | `canvas` | every thread as one navigable tree, new, 39 tests |
 

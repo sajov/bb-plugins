@@ -12,7 +12,6 @@ share a toolchain and a set of conventions — not because they belong together.
 | [Crew](bb-plugin-crew/) | Persistent agent teams from a `crew.yaml`: members with fixed addresses, messaging, a work queue, several crews per project. | 364 |
 | [Aside](bb-plugin-aside/) | A replacement for BB's thread list. Focus through order and collapsing instead of filters. | 176 |
 | [Listen](bb-plugin-listen/) | Speech in and out, fully offline with open models. Dictate in the composer, have answers read aloud. | 77 |
-| [Slim Nav](bb-plugin-slim-nav/) | Icon-only sidebar navigation with adjustable density. | — |
 | [Recall](bb-plugin-recall/) | Search earlier threads and tasks by meaning, using a local qmd index alongside BB's keyword search. | 50 |
 
 The screenshots below are captures from a running instance; the project, file
@@ -90,16 +89,6 @@ bb plugin install git:https://github.com/sajov/bb-plugins.git \
   --subdirectory bb-plugin-listen
 ```
 
-## Slim Nav
-
-Icon-only sidebar navigation with three density steps and an optional divider,
-keeping BB's saved order and visibility controls.
-
-```sh
-bb plugin install git:https://github.com/sajov/bb-plugins.git \
-  --subdirectory bb-plugin-slim-nav
-```
-
 ## Recall
 
 Finds earlier threads and tasks by meaning, not only by exact words. Recall
@@ -150,7 +139,6 @@ Graph Studio is the only one under active development.
   instead of a thread changes what a graph is; the case for it is not settled.
 - **Marketplace submission** — screenshots, `PLUGIN_OVERVIEW.md` and
   third-party notices per plugin.
-- **Slim Nav has no tests.** It is small and resting, but that is a gap.
 
 ### Known limitations
 
@@ -160,16 +148,12 @@ Graph Studio is the only one under active development.
   Aside then shows the orphans as roots, which is the correct reaction rather
   than the cause. Deliberately not worked around — a fix would mean Aside
   deleting destructively on its own.
-- **Slim Nav styles against host DOM attributes** (`data-testid`,
-  `data-sidebar-navigation-*`). A BB UI change can require rework.
 
 ## Credits
 
 Aside's card grid follows
 [Dockside](https://github.com/MateoCerquetella/bb-plugins/tree/main/plugins/dockside)
-by Mateo Cerquetella. Slim Nav follows the idea of
-[Compact Nav](https://github.com/SawyerHood/sawyer-plugins/tree/main/plugins/compact-nav)
-by Sawyer Hood. In both cases the model was adopted, not the code. Listen is
+by Mateo Cerquetella; the model was adopted, not the code. Listen is
 derived from [pi-listen](https://github.com/codexstar69/pi-listen) by
 codexstar69; see [its licence](bb-plugin-listen/LICENSE) for the details.
 
