@@ -94,7 +94,7 @@ export type FlyoutEntry =
   | { kind: "tag"; id: string; name: string; count: number; picked: boolean };
 
 /**
- * The flyout's one list: projects first, then tags, each by count (most used
+ * The flyout's one list: tags first, then projects, each by count (most used
  * first) and then by name. The query narrows both; a `#` query narrows to tags
  * only, by prefix. Picked entries stay where they are, so a click never makes
  * the row under the pointer jump away.
@@ -140,5 +140,5 @@ export function flyoutEntries({
       picked: activeTags.includes(tag),
     }))
     .sort(byCount);
-  return [...projectRows, ...tagRows];
+  return [...tagRows, ...projectRows];
 }

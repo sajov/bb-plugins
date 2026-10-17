@@ -2,7 +2,7 @@
 //
 // It drops in from the top and covers the whole column, header included: while
 // you are asking "where is it", the list below is in the way, not a help. One
-// field on top, one list under it — projects first, then tags, told apart by
+// field on top, one list under it — tags first, then projects, told apart by
 // their icon rather than by two boxes that each scroll on their own. A click
 // toggles a row; there is no checkbox, a picked row is lit and carries a ✓.
 //
@@ -171,7 +171,7 @@ export function SearchSlot({
       .map((project) => ({ kind: "project" as const, id: project.id, name: project.name })),
     ...activeTags.map((tag) => ({ kind: "tag" as const, id: tag, name: tag })),
   ];
-  const firstTag = entries.findIndex((entry) => entry.kind === "tag");
+  const firstProject = entries.findIndex((entry) => entry.kind === "project");
 
   return (
     <div
@@ -273,7 +273,7 @@ export function SearchSlot({
           const row = index + (textRow ? 1 : 0);
           return (
             <div key={`${entry.kind}:${entry.id}`}>
-              {index === firstTag && index > 0 ? (
+              {index === firstProject && index > 0 ? (
                 <div className="mx-2.5 my-1 h-px bg-border-hairline" />
               ) : null}
               <Row
