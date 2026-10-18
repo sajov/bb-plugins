@@ -42,6 +42,8 @@ export function Board(props: BoardProps) {
   const [query, setQuery] = useState("");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Narrow screens show one column at a time; "waiting" is what you came for.
+  const [activeColumn, setActiveColumn] = useState<Column>("waiting");
   const markedDone = useMemo(() => new Set(props.markedDone), [props.markedDone]);
   const projectName = useMemo(() => new Map(props.projects.map((p) => [p.id, p.name])), [props.projects]);
 
@@ -108,10 +110,37 @@ export function Board(props: BoardProps) {
         )}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto md:grid-cols-4">
+      <div role="tablist" aria-label="Column" className="-mx-5 flex shrink-0 snap-x gap-1.5 overflow-x-auto px-5 pb-1 [scrollbar-width:none] md:hidden [&::-webkit-scrollbar]:hidden">
         {COLUMNS.map((column) => (
-          <section key={column.id} aria-label={column.title} className="flex min-h-0 flex-col">
-            <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          <button
+            key={column.id}
+            type="button"
+            role="tab"
+            aria-selected={activeColumn === column.id}
+            onClick={(event) => {
+              setActiveColumn(column.id);
+              event.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "smooth" });
+            }}
+            className={cn(
+              "flex shrink-0 snap-start items-center gap-1.5 whitespace-nowrap rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground",
+              activeColumn === column.id && "bg-accent text-foreground",
+            )}
+          >
+            <span className="size-1.5 shrink-0 rounded-full" style={{ background: TONE[column.id] }} />
+            <span>{column.title}</span>
+            <span>{groups[column.id].length}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-4">
+        {COLUMNS.map((column) => (
+          <section
+            key={column.id}
+            aria-label={column.title}
+            className={cn("min-h-0 flex-col md:flex", activeColumn === column.id ? "flex" : "hidden")}
+          >
+            <h2 className="mb-2 hidden items-center md:flex gap-2 text-xs font-semibold text-muted-foreground">
               <span className="size-2 rounded-full" style={{ background: TONE[column.id] }} />
               {column.title}
               <span className="ml-auto font-normal">{groups[column.id].length}</span>

@@ -218,6 +218,25 @@ describe("detail popup", () => {
   });
 });
 
+describe("column picker on narrow screens", () => {
+  it("shows waiting first and switches the visible column on a tab", () => {
+    renderBoard({ threads: [thread(), thread({ id: "t2", displayTitle: "Running", status: "active" })] });
+    const waiting = screen.getByRole("region", { name: "Waiting for you" });
+    const progress = screen.getByRole("region", { name: "In progress" });
+    expect(waiting.className).toMatch(/(^| )flex( |$)/);
+    expect(progress.className).toMatch(/(^| )hidden( |$)/);
+    fireEvent.click(screen.getByRole("tab", { name: /In progress/ }));
+    expect(progress.className).toMatch(/(^| )flex( |$)/);
+    expect(waiting.className).toMatch(/(^| )hidden( |$)/);
+  });
+
+  it("counts the cards on each tab", () => {
+    renderBoard({ threads: [thread(), thread({ id: "t2" })] });
+    expect(screen.getByRole("tab", { name: /Waiting for you/ }).textContent).toContain("2");
+    expect(screen.getByRole("tab", { name: /Done/ }).textContent).toContain("0");
+  });
+});
+
 describe("toolbar", () => {
   it("offers to evaluate the unevaluated threads only", () => {
     const props = renderBoard({ threads: [thread(), thread({ id: "t2", displayTitle: "Other" })], purposes: { t1: purpose() } });
