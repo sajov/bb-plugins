@@ -1,6 +1,6 @@
 # Working in this repository
 
-Seven BB plugins as standalone npm packages, deliberately **without** workspace
+Eight BB plugins as standalone npm packages, deliberately **without** workspace
 tooling on top — they share no dependency.
 
 | Folder | Plugin | State |
@@ -12,6 +12,7 @@ tooling on top — they share no dependency.
 | `bb-plugin-slim-nav` | `slim-nav` | deprecated, not maintained |
 | `bb-plugin-recall` | `recall` | semantic search over threads and tasks via qmd, new, 50 tests |
 | `bb-plugin-constellation` | `constellation` | every thread as one navigable tree, new, 39 tests |
+| `bb-plugin-thread-board` | `thread-board` | every thread on a kanban board by what it needs next, with a model-written purpose, new, 46 tests |
 
 ## Where to work
 
