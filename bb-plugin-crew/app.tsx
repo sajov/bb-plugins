@@ -1317,14 +1317,37 @@ function CrewsPage() {
   const readCrewFile = async () => (crew ? ((await rpc.call("getCrewFile", { projectId: crew.projectId, name: crew.name })).yaml ?? "") : "");
 
   // Every project's board for the canvas, kept live by a poll: merges and
-  // behind-main have no push channel.
+  // behind-main have no push channel. Each project settles on its own, so one
+  // failed read neither blocks nor blanks the others. A project whose read
+  // failed is left out (its last numbers would pass as current) and listed in
+  // `unreadable` instead, so its absence is said and never looks like zero work.
   const [overviews, setOverviews] = useState<Map<string, OverviewDto>>(new Map());
+  const [unreadable, setUnreadable] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     let cancelled = false;
+    const settle = (projectId: string, result: OverviewDto | null) => {
+      if (cancelled) return;
+      setOverviews((previous) => {
+        const next = new Map(previous);
+        if (result) next.set(projectId, result);
+        else next.delete(projectId);
+        return next;
+      });
+      setUnreadable((previous) => {
+        if (previous.has(projectId) === (result === null)) return previous;
+        const next = new Set(previous);
+        if (result) next.delete(projectId);
+        else next.add(projectId);
+        return next;
+      });
+    };
     const load = () => {
-      void Promise.all(projects.map((project) => rpc.call("projectOverview", { projectId: project.id }).then((result) => [project.id, result] as const))).then((entries) => {
-        if (!cancelled) setOverviews(new Map(entries));
-      }, () => undefined);
+      for (const project of projects) {
+        // The call itself may throw before it returns a promise; both count as a failed read.
+        Promise.resolve()
+          .then(() => rpc.call("projectOverview", { projectId: project.id }))
+          .then((result) => settle(project.id, result), () => settle(project.id, null));
+      }
     };
     load();
     const timer = setInterval(load, 15_000);
@@ -1446,6 +1469,13 @@ function CrewsPage() {
             {error}
           </p>
         ) : null}
+        {projects
+          .filter((project) => unreadable.has(project.id))
+          .map((project) => (
+            <p key={project.id} role="alert" data-board-read-error={project.id} className="mb-3 text-sm text-destructive">
+              Could not read the board of {project.name}. Its crews are left out until the next refresh succeeds.
+            </p>
+          ))}
         {crews === null ? (
           <p className="text-sm text-muted-foreground">Loading crews…</p>
         ) : crews.length === 0 ? (

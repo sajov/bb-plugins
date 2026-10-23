@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { loadPluginApp, mountPluginContentScripts, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { ActivityDto, MemberDto, MessageDto, OverviewDto } from "../server";
@@ -628,6 +628,92 @@ describe("Crews panel — delete crew", () => {
     fireEvent.click(within(form).getByLabelText("Delete anyway"));
     fireEvent.click(button);
     await waitFor(() => expect(calls.map((call) => call.force)).toEqual([false, true]));
+    slot.lifecycle.unmount();
+  });
+});
+
+describe("Crews board: a failed project read is partial, never silent", () => {
+  const foreign = { ...crew, id: "p2:gs15", projectId: "p2", name: "gs15", projectName: "Graph Studio" };
+  const busy = card({ name: "gs15", members: [{ key: "gs-lead", lead: true, activity: "working", needsYou: [] }] });
+  // A message shaped like a leaked stack or stderr line: none of it may reach the board.
+  const LEAK = "ECONNRESET at /private/example.ts:12 stderr: token=example";
+  const rejects = () => {
+    throw new Error(LEAK);
+  };
+  /** p1 always reads fine; what p2 does is decided per call by `read`. */
+  const board = (read: (call: number) => unknown, extra: Record<string, (input: never) => unknown> = {}) => {
+    let p2Calls = 0;
+    return backend({
+      listCrews: () => ({ crews: [{ ...crew, projectName: "BB Plugins" }, foreign] }),
+      projectOverview: (input: never) => ((input as { projectId: string }).projectId === "p2" ? read(++p2Calls) : overview({})),
+      ...extra,
+    });
+  };
+  const readErrors = (slot: { container: HTMLElement }) => Array.from(slot.container.querySelectorAll("[data-board-read-error]"));
+  const poll = () => vi.advanceTimersByTime(15_000);
+
+  afterEach(() => vi.useRealTimers());
+
+  it("success: both projects are drawn and no read error is shown", async () => {
+    const app = await loadPluginApp(pluginApp);
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: board(() => overview({ crews: [busy] })) });
+    await waitFor(() => expect(slot.container.querySelectorAll("[data-project-frame]")).toHaveLength(2));
+    expect(slot.container.querySelector('[data-project-frame="p2"] [data-cluster="running"]')!.textContent).toContain("1 running");
+    expect(readErrors(slot)).toHaveLength(0);
+    slot.lifecycle.unmount();
+  });
+
+  it("partial failure: the healthy project is still drawn, the failed one says so and is not drawn as zero work", async () => {
+    const app = await loadPluginApp(pluginApp);
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: board(rejects) });
+    await waitFor(() => expect(slot.container.querySelector('[data-project-frame="p1"] [data-cluster="running"]')).not.toBeNull());
+    const alerts = await waitFor(() => {
+      const found = readErrors(slot);
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    expect(alerts[0]!.textContent).toContain("Graph Studio");
+    expect(alerts[0]!.getAttribute("role")).toBe("alert");
+    // Absence is explained, not zeroed: no frame and no "0 running" for the project that could not be read.
+    expect(slot.container.querySelector('[data-project-frame="p2"]')).toBeNull();
+    expect(slot.container.textContent).not.toContain("ECONNRESET");
+    expect(slot.container.textContent).not.toContain("private/example");
+    slot.lifecycle.unmount();
+  });
+
+  it("total failure: every project says it could not be read and nothing is drawn as zero", async () => {
+    const app = await loadPluginApp(pluginApp);
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: board(rejects, { projectOverview: rejects }) });
+    await waitFor(() => expect(readErrors(slot)).toHaveLength(2));
+    expect(readErrors(slot).map((node) => node.textContent).join(" ")).toContain("BB Plugins");
+    expect(readErrors(slot).map((node) => node.getAttribute("data-board-read-error"))).toEqual(["p1", "p2"]);
+    expect(slot.container.querySelector("[data-project-frame]")).toBeNull();
+    expect(slot.container.querySelector('[data-cluster="running"]')).toBeNull();
+    expect(slot.container.textContent).not.toContain("ECONNRESET");
+    slot.lifecycle.unmount();
+  });
+
+  it("recovery: the next poll draws the project and clears its error", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const app = await loadPluginApp(pluginApp);
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: board((call) => (call === 1 ? rejects() : overview({ crews: [busy] }))) });
+    await waitFor(() => expect(readErrors(slot)).toHaveLength(1));
+    expect(slot.container.querySelector('[data-project-frame="p2"]')).toBeNull();
+    poll();
+    await waitFor(() => expect(slot.container.querySelector('[data-project-frame="p2"] [data-cluster="running"]')).not.toBeNull());
+    expect(readErrors(slot)).toHaveLength(0);
+    slot.lifecycle.unmount();
+  });
+
+  it("a read that fails after a good one does not leave the old numbers standing as current", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const app = await loadPluginApp(pluginApp);
+    const slot = renderSlot(app.navPanels[0]!, { subPath: "" }, { rpc: board((call) => (call === 1 ? overview({ crews: [busy] }) : rejects())) });
+    await waitFor(() => expect(slot.container.querySelector('[data-project-frame="p2"] [data-cluster="running"]')).not.toBeNull());
+    poll();
+    await waitFor(() => expect(readErrors(slot)).toHaveLength(1));
+    expect(slot.container.querySelector('[data-project-frame="p2"]')).toBeNull();
+    expect(slot.container.querySelector('[data-project-frame="p1"]')).not.toBeNull();
     slot.lifecycle.unmount();
   });
 });
