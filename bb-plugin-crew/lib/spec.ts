@@ -143,12 +143,17 @@ export const crewSpecSchema = z
       .partial()
       .strict()
       .default({}),
+    /**
+     * `work-done` reads the plugin's own queue: `task` is then the exact id of a
+     * native work item (`wi_…`) of a crew of the same project, never a Tasks key,
+     * title or alias, and BB Tasks is not asked anything for it.
+     */
     waitsFor: z
       .array(
         z
           .object({
             task: z.string().min(1),
-            until: z.string().regex(/^(merged|done|comment:.+)$/),
+            until: z.string().regex(/^(merged|done|work-done|comment:.+)$/),
           })
           .strict(),
       )
@@ -497,7 +502,8 @@ export function validateCrew(input: string | unknown, options: ValidateOptions =
     }
   }
 
-  if (spec.waitsFor.length > 0 && !spec.task) {
+  // `work-done` labels nothing, so only the other sources need the waiting crew's own task.
+  if (spec.waitsFor.some((dependency) => dependency.until !== "work-done") && !spec.task) {
     warn("waits-without-task", "waitsFor is set but task is not: the wartet-auf label has no task to go on");
   }
   for (const dependency of spec.waitsFor) {

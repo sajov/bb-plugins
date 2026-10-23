@@ -311,7 +311,7 @@ describe("rebase", () => {
 });
 
 describe("waitsFor", () => {
-  it("merged: nothing before the merge; after it the waiting lead gets exactly one waking message with the rebase order", async () => {
+  it("merged: nothing before the merge; after it the waiting lead gets one notice and decides whether to rebase", async () => {
     const { service, alpha, beta, wakes, store, port, tasks } = await twoCrews();
     expect(await service.pollDependencies()).toBe(0);
     expect(wakes(beta)).toEqual([]);
@@ -320,6 +320,7 @@ describe("waitsFor", () => {
     await service.flush();
     expect(wakes(beta).length).toBe(1);
     expect(wakes(beta)[0]!.body).toContain("crew_rebase");
+    expect(wakes(beta)[0]!.body).toContain("is yours to decide");
     // A waking message: it started a turn in beta's lead thread.
     expect(port.threads.get(beta.threads["core-lead"]!)!.inbox.filter((entry) => entry.text.includes("Dependency fulfilled")).length).toBe(1);
     for (let i = 0; i < 3; i += 1) await service.pollDependencies();

@@ -35,9 +35,14 @@ worker threads.
 
 Crews in the same project coordinate through their leads, BB Tasks and the base
 branch. By default only leads may message another crew; `open` and `none`
-widen or close that. A lead can wait for another crew's work with `waitsFor`
-and is woken exactly once when it is merged. A reply chain stops after a step
-limit, so two crews cannot ping-pong forever.
+widen or close that. A lead can wait for other crews' work with `waitsFor`: it
+gets one notice, queued durably, only after every declared condition holds, and
+the notice asks it to re-check the sources and its own guards (no automatic
+acceptance, rebase or publication). A condition can also be a native work item
+(`until: work-done` with the item's exact id, in a crew of the same project): it
+reads the plugin's own queue, never BB Tasks, and means only that the item is
+done. A reply chain stops after a step limit, so two crews cannot ping-pong
+forever.
 
 ## See who works
 

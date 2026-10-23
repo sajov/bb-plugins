@@ -176,11 +176,25 @@ session start (`bb crew apply --fresh <member>`).
   `checks` or a conflict return the request to the human. Every merge sends a
   non-waking "main moved" note to all running leads. `crew_rebase` aborts on
   conflict and puts the member on Needs you (`merge-conflict`).
-- `waitsFor: [{task, until: merged|done|comment:<kw>}]`: polled every minute;
-  on fulfilment the waiting lead gets exactly one waking message (for
-  `merged`: with the rebase order). The waiting crew's own `task` gets the
-  label `wartet-auf:<KEY>` in BB Tasks (created if missing; skipped with a
-  stored reason if that fails).
+- `waitsFor: [{task, until: merged|done|work-done|comment:<kw>}]`: polled every minute;
+  the entries are an AND. Only when every declared condition holds does the
+  waiting lead get one notice, queued durably together with the state that
+  completes the set. It asks the lead to re-read the sources and re-check its
+  own guards and grants no acceptance, rebase or publication (rebasing after
+  `merged` is the lead's call, `crew_rebase`). A met condition that cannot be
+  recorded (no lead, a failing write) stays open with the reason, visible in
+  `bb crew deps`, and is retried. Delivery to the thread is attempted while a
+  destination is reachable; a terminal failure is recorded as `failed`, with no
+  guaranteed delivery, and it is never exactly-once. The waiting crew's own
+  `task` gets the label `wartet-auf:<KEY>` in BB Tasks
+  (created if missing; skipped with a stored reason if that fails).
+  `until: work-done` is the native-queue source: `task` is the exact id of a work
+  item (`wi_…`, from `bb crew work list`) that must be `done`, in a crew of the
+  same project. No title, task key or alias is resolved; a missing id, another
+  project's item and an item that is open, claimed or `failed` never satisfy it.
+  It needs no BB Tasks, never calls it, sets no label, and the notice carries the
+  id, the crew and the milestone but not the item's text. A done item is a
+  milestone of the queue, not an acceptance: re-read the sources and your guards.
 - Lead relief: context from 60 % (members 80 %) shows "Handover suggested",
   a lead at 80 % is on Needs you (`context`). With `deputy:` a cross-crew
   message to a lead busy for longer than `leadBusyTimeout` (10 min) goes to

@@ -219,8 +219,31 @@ can talk across their boundary.
 - **How:** a lead calls `crew_send(to: "web-lead@web", …)`; `crew_directory`
   lists all crews of the project with task, status, branch and lead.
 - **Waiting on another crew:** `waitsFor: [{ task: TASK-1, until: merged }]` in
-  the crew file. When the other crew's work is merged into `baseBranch`, the
-  waiting lead is woken exactly once and rebases.
+  the crew file. Several entries are an AND: the waiting lead gets one notice
+  only after every declared condition holds (for `merged`: the other crew's work
+  is in `baseBranch`), never because one of them does. The notice is a durable
+  obligation in the plugin's messages queue, written together with the state
+  that completes the set. It asks the lead to re-read the sources and re-check
+  its own guards; it is not an acceptance, review, rebase or publication, starts
+  nothing by itself, and whether and when to rebase stays the lead's decision.
+  The conditions mean only what they say (`merged`, `done`, `work-done`,
+  `comment:<kw>`), not reviewed, served or accepted. Delivery to the thread is
+  attempted while a destination is reachable; a terminal failure is recorded as
+  `failed`, so delivery is not guaranteed and never exactly-once. A changed
+  crew file is a new declaration.
+- **Waiting on a work item:** `waitsFor: [{ task: wi_1a2b3c4d, until: work-done }]`
+  reads the plugin's own work queue instead of BB Tasks. `task` is the **exact
+  id** of a native work item (as `bb crew work` lists it) that must be `done`,
+  in a crew of the same project (another crew of the project is fine). It is
+  never resolved by title, task key or alias, and a missing id, an item of
+  another project, or an item that is open, claimed or `failed` never satisfies
+  it. It needs no BB Tasks, never calls it even when it is connected, and sets
+  no `wartet-auf` label; `done`, `merged` and `comment:` keep their sources and
+  meaning (`done` on a work item id is still a BB Tasks lookup). It joins the
+  same AND and the same durable notice; the notice names the id, the crew and
+  the milestone, not the item's text. `done` on a work item is a milestone of
+  the queue, nothing more: the lead still re-reads the sources and its own
+  guards.
 - **Safety:** a reply chain keeps counting steps across crews and stops at
   `maxSteps` (default 6), so two crews cannot ping-pong forever.
 

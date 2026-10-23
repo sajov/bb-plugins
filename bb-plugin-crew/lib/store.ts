@@ -1191,6 +1191,10 @@ export function createStore(db: Database, now: () => number = Date.now) {
         : db.prepare("SELECT * FROM crew_dependencies ORDER BY rowid").all();
       return (rows as Raw[]).map(toDependency);
     },
+    /** Run `fn` in one transaction: its writes commit together or not at all. Nested calls join the outer one. */
+    atomically<T>(fn: () => T): T {
+      return db.transaction(fn)();
+    },
     /** True only for the call that flipped the row: the wake message hangs on this. */
     satisfyDependency(crewId: string, taskKey: string, until: string, detail: string): boolean {
       const result = db
@@ -1199,6 +1203,10 @@ export function createStore(db: Database, now: () => number = Date.now) {
         )
         .run(now(), detail, crewId, taskKey, until);
       return result.changes === 1;
+    },
+    /** Why an open row's fulfilment is not recorded yet (the row stays open and the next poll retries). */
+    noteDependency(crewId: string, taskKey: string, until: string, detail: string): void {
+      db.prepare("UPDATE crew_dependencies SET detail = ? WHERE crew_id = ? AND task_key = ? AND until = ? AND state = 'open'").run(detail, crewId, taskKey, until);
     },
     setDependencyLabel(crewId: string, taskKey: string, until: string, labelState: string, detail: string | null): void {
       db.prepare("UPDATE crew_dependencies SET label_state = ?, detail = COALESCE(?, detail) WHERE crew_id = ? AND task_key = ? AND until = ?").run(
