@@ -20,10 +20,10 @@ project is the default.
 bb crew templates                         # bundled crew files: pair, trio, research
 bb crew plan <crew|template|file.yaml>    # read-only: one action per member
 bb crew apply <crew|template|file.yaml> [--fresh <member>…] [--confirm-full]
-bb crew list                              # crews of the project with status
-bb crew show <crew>                       # members, provider/model, thread, shift
+bb crew list [--json]                     # crews of the project with status
+bb crew show <crew> [--json]              # members, provider/model, thread, shift
 bb crew show <crew> --against <file|template>  # plus one "Drift from file" line (plan prints it too)
-bb crew ps [<crew>]                       # same, for all crews when none is named
+bb crew ps [<crew>] [--json]              # same, for all crews when none is named
 bb crew stop <crew> [--archive]           # stop running turns; --archive archives
 bb crew delete <crew> [--threads archive|delete|keep] [--force]   # remove a stopped crew for good
 bb crew export <crew> > crew.yaml         # the stored crew file
@@ -277,3 +277,13 @@ Detach.
   unarchives and reports `unarchived`.
 - Never delete member threads by hand; remove the member from the file and
   apply, which archives it.
+
+### CLI JSON reads
+
+Use `--json` with `bb crew list`, `show`, `ps`, or `work list` to read structured
+output. `list`, `ps`, and `work list` return arrays (including `[]` for an empty
+result); `show` returns one crew object. Errors return a nonzero exit code,
+`{ "ok": false, "error": { "code": "…", "message": "…" } }` on stdout, and a
+readable message on stderr. Output that exceeds the CLI limit is refused as
+`output_too_large` rather than truncated into invalid JSON. Without `--json`,
+the commands keep their text output; the flag has no effect on mutations.

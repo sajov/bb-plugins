@@ -11,11 +11,11 @@ import { AddressError } from "./delivery";
 import { hasErrors, PERMISSIONS, TIERS, type Permission, type Tier } from "./spec";
 import { DELETE_THREADS_MODES, DeleteRefused, type CrewService, type DeleteThreadsMode } from "./service";
 import { MESSAGE_STATUSES, type CrewRow, type MessageRow, type MessageStatus } from "./store";
-import type { MemberResult } from "./sync";
+import type { MemberResult, MemberView } from "./sync";
 
 export const CLI_COMMANDS = [
-  { name: "list", summary: "List the crews of the project", usage: "bb crew list [--project <id|name>]" },
-  { name: "show", summary: "Show a crew: file version, status, members", usage: "bb crew show <crew> [--against <crew|template|file.yaml>]" },
+  { name: "list", summary: "List the crews of the project", usage: "bb crew list [--project <id|name>] [--json]" },
+  { name: "show", summary: "Show a crew: file version, status, members", usage: "bb crew show <crew> [--against <crew|template|file.yaml>] [--json]" },
   { name: "plan", summary: "Preview what apply would do (read-only)", usage: "bb crew plan <crew|template|file.yaml> [--fresh <member>…] [--confirm-full] [--confirm-gates]" },
   {
     name: "apply",
@@ -28,7 +28,7 @@ export const CLI_COMMANDS = [
     summary: "Remove a stopped crew and all its data; threads are archived (default), deleted or kept",
     usage: "bb crew delete <crew> [--threads archive|delete|keep] [--force]",
   },
-  { name: "ps", summary: "Members and their thread state", usage: "bb crew ps [<crew>]" },
+  { name: "ps", summary: "Members and their thread state", usage: "bb crew ps [<crew>] [--json]" },
   { name: "templates", summary: "List bundled crew templates", usage: "bb crew templates" },
   { name: "export", summary: "Print the stored crew file as YAML", usage: "bb crew export <crew> > crew.yaml" },
   {
@@ -52,7 +52,7 @@ export const CLI_COMMANDS = [
     name: "work",
     summary: "The crew's work queue",
     usage:
-      "bb crew work list|create|claim|unclaim|handoff|done|fail … --crew <crew>  (create <title…> [--owner <m>] [--tier p0-p3] [--due <iso>] [--body <b>] [--task <KEY>]; claim <id> --as <m>; handoff <id> <to> [note…]; done <id> [note…]; fail <id> <reason…>; list [--all])",
+      "bb crew work list|create|claim|unclaim|handoff|done|fail … --crew <crew>  (create <title…> [--owner <m>] [--tier p0-p3] [--due <iso>] [--body <b>] [--task <KEY>]; claim <id> --as <m>; handoff <id> <to> [note…]; done <id> [note…]; fail <id> <reason…>; list [--all] [--json])",
   },
   { name: "merges", summary: "Merge requests of the project", usage: "bb crew merges [--all]" },
   { name: "approve", summary: "Merge a merge request into main", usage: "bb crew approve <mr>" },
@@ -156,6 +156,17 @@ export function parseArgs(argv: readonly string[]): Parsed {
   return { positional, flags, project, fresh, values };
 }
 
+/** The reads `--json` replaces the text of. On every other command the flag changes nothing. */
+function readsJson(positional: readonly string[]): boolean {
+  const [command, sub] = positional;
+  return command === "list" || command === "show" || command === "ps" || (command === "work" && (sub === undefined || sub === "list"));
+}
+
+/** DRIFT: BB runs a declared member on another provider/model than the file names. */
+function drifts(member: MemberView): boolean {
+  return member.actualProvider !== null && (member.actualProvider !== member.provider || (member.actualModel !== null && member.actualModel !== member.model));
+}
+
 export function formatLog(rows: readonly MessageRow[], full: boolean, crewName: (id: string | null) => string | null): string[] {
   if (rows.length === 0) return ["No messages."];
   return rows.flatMap((row) => {
@@ -194,9 +205,21 @@ export async function runCli(
     exitCode: 0,
     stdout: `${bound(Array.isArray(lines) ? lines.join("\n") : lines)}\n`,
   });
-  const fail = (text: string) => ({ exitCode: 1, stderr: `${bound(text)}\n` });
   const args = parseArgs(argv);
   const [command, target] = args.positional;
+  const asJson = args.flags.has("--json") && readsJson(args.positional);
+  // BB's own envelope: a script parses stdout and checks `.ok`; the readable message stays on stderr.
+  const fail = (text: string, code = "error") => ({
+    exitCode: 1,
+    ...(asJson ? { stdout: `${JSON.stringify({ ok: false, error: { code, message: text } })}\n` } : {}),
+    stderr: `${bound(text)}\n`,
+  });
+  const okJson = (value: unknown) => {
+    const text = JSON.stringify(value);
+    // A cut-off document is worse than a refusal: bound() would append its note to the tail.
+    if (text.length > OUTPUT_LIMIT) return fail(`The JSON is ${text.length} characters, over the ${OUTPUT_LIMIT} a command may print; narrow it (--crew, without --all).`, "output_too_large");
+    return { exitCode: 0, stdout: `${text}\n` };
+  };
 
   if (command === undefined || command === "help" || args.flags.has("--help")) return ok(USAGE);
   if (command === "templates") {
@@ -216,7 +239,11 @@ export async function runCli(
   }
 
   const projectId = await resolveProject(args.project, ctx);
-  if (!projectId) return fail("No project: run inside a BB thread or pass --project <id|name>.");
+  if (!projectId) {
+    // A named project that BB does not know must not read like "run this inside a thread".
+    if (args.project) return fail(`No project "${args.project}" on this host: pass --project <id|name> of a project from bb project list.`, "project_not_found");
+    return fail("No project: run inside a BB thread or pass --project <id|name>.", "no_project");
+  }
   const crewName = (id: string | null) => (id ? (service.ctx.store.getCrew(id)?.name ?? id) : null);
   const sent = (rows: MessageRow[]) => {
     const lines = rows.map((row) => `  ${row.toAddress.padEnd(28)} ${row.status}${row.reason ? `  (${row.reason})` : ""}  msg ${row.id}`);
@@ -270,6 +297,23 @@ export async function runCli(
           case undefined:
           case "list": {
             const items = service.queue.list(crew, { all: args.flags.has("--all"), owner: args.values.owner });
+            if (asJson) {
+              return okJson(
+                items.map((item) => ({
+                  id: item.id,
+                  crew: crew.name,
+                  title: item.title,
+                  state: item.state,
+                  tier: item.tier,
+                  owner: item.ownerMember ? addressOf(item.ownerMember) : null,
+                  taskKey: item.taskKey,
+                  dueAt: item.dueAt ? new Date(item.dueAt).toISOString() : null,
+                  closureNote: item.closureNote,
+                  stateSince: new Date(item.stateSince).toISOString(),
+                  updatedAt: new Date(item.updatedAt).toISOString(),
+                })),
+              );
+            }
             return ok(items.length ? items.map((item) => formatWorkItem(item, addressOf)) : "No work items.");
           }
           case "create": {
@@ -561,6 +605,13 @@ export async function runCli(
       }
       case "list": {
         const crews = service.listCrews(projectId);
+        if (asJson) {
+          return okJson(
+            await Promise.all(
+              crews.map(async (crew) => ({ name: crew.name, status: crew.status, fileVersion: crew.fileVersion, members: (await service.members(crew)).length })),
+            ),
+          );
+        }
         if (crews.length === 0) return ok("No crews in this project. Start with: bb crew templates");
         const lines: string[] = [];
         for (const crew of crews) {
@@ -576,9 +627,40 @@ export async function runCli(
           : command === "ps"
             ? service.listCrews(projectId)
             : [];
-        if (!target && command === "show") return fail("Usage: bb crew show <crew>");
-        if (crews.length === 0) return fail(target ? `No crew "${target}" in this project.` : "No crews in this project.");
+        if (!target && command === "show") return fail("Usage: bb crew show <crew>", "usage");
+        // `ps --json` of a project without crews is an empty fleet, as `list --json` says; a named crew that is missing is still a refusal.
+        if (crews.length === 0 && !(asJson && !target)) {
+          return fail(target ? `No crew "${target}" in this project.` : "No crews in this project.", target ? "crew_not_found" : "no_crews");
+        }
         const against = command === "show" && args.values.against ? await service.resolveFile(projectId, args.values.against, ctx.cwd) : null;
+        if (asJson) {
+          const views = [];
+          for (const crew of crews) {
+            views.push({
+              name: crew.name,
+              status: crew.status,
+              fileVersion: crew.fileVersion,
+              members: (await service.members(crew)).map((member) => {
+                return {
+                  key: member.key,
+                  address: member.address,
+                  lead: member.lead,
+                  provider: member.provider,
+                  model: member.model,
+                  actualProvider: member.actualProvider,
+                  actualModel: member.actualModel,
+                  drift: drifts(member),
+                  status: member.status,
+                  thread: member.thread,
+                  threadId: member.threadId,
+                  shift: member.shift,
+                };
+              }),
+              drift: against ? { against: against.label, text: await service.driftFrom(crew, against.yaml) } : null,
+            });
+          }
+          return okJson(command === "show" ? views[0] : views);
+        }
         const lines: string[] = [];
         for (const crew of crews) {
           lines.push(`${crew.name}  ${crew.status}  file v${crew.fileVersion}`);
@@ -587,8 +669,7 @@ export async function runCli(
               `  ${member.address.padEnd(28)} ${`${member.provider ?? "?"}/${member.model ?? "?"}`.padEnd(40)} ${(member.status ?? member.thread).padEnd(9)} ${
                 member.thread === "archived" ? "archived " : ""
               }${member.threadId ?? "-"}${member.shift !== null ? `  shift ${member.shift}` : ""}${member.lead ? "  lead" : ""}${
-                member.actualProvider !== null &&
-                (member.actualProvider !== member.provider || (member.actualModel !== null && member.actualModel !== member.model))
+                drifts(member)
                   ? `  DRIFT: BB reports ${member.actualProvider}/${member.actualModel ?? "?"}`
                   : member.actualProvider !== null
                     ? `  (BB: ${member.actualProvider}/${member.actualModel ?? "?"})`
