@@ -252,6 +252,14 @@ export const MIGRATIONS: readonly string[] = [
      shift INTEGER NOT NULL,
      created_at INTEGER NOT NULL
    )`,
+  // One validated AND declaration and its outbox markers; dependency ids are native work ids.
+  `CREATE TABLE work_dependencies (
+     item_id TEXT PRIMARY KEY,
+     depends_on TEXT NOT NULL,
+     satisfied INTEGER NOT NULL DEFAULT 0,
+     failed_notified TEXT NOT NULL DEFAULT '[]',
+     detail TEXT
+   )`,
 ];
 
 export const CREW_STATUSES = ["stopped", "starting", "running", "degraded"] as const;
@@ -344,7 +352,18 @@ export type NewMessage = Omit<
 
 export const WORK_STATES = ["open", "claimed", "done", "failed"] as const;
 export type WorkState = (typeof WORK_STATES)[number];
+export type WorkDependencyRow = {
+  itemId: string;
+  dependsOn: string[];
+  satisfied: boolean;
+  failedNotified: string[];
+  detail: string | null;
+};
+
 export type WorkItemRow = {
+  waitsFor?: string[];
+  blockedBy?: string[];
+  dependencyDetail?: string | null;
   id: string;
   crewId: string;
   title: string;
@@ -612,6 +631,10 @@ export type Store = ReturnType<typeof createStore>;
 
 export function createStore(db: Database, now: () => number = Date.now) {
   return {
+    /** Run `fn` in one transaction: its writes commit together or not at all. Nested calls join the outer one. */
+    atomically<T>(fn: () => T): T {
+      return db.transaction(fn)();
+    },
     listCrews(projectId?: string): CrewRow[] {
       const rows = projectId
         ? db.prepare("SELECT * FROM crews WHERE project_id = ? ORDER BY name").all(projectId)
@@ -1067,6 +1090,18 @@ export function createStore(db: Database, now: () => number = Date.now) {
       })();
       return this.getWork(item.id)!;
     },
+    getWorkDependency(itemId: string): WorkDependencyRow | null {
+      const row = db.prepare("SELECT * FROM work_dependencies WHERE item_id = ?").get(itemId) as Raw | undefined;
+      return row ? { itemId, dependsOn: JSON.parse(String(row.depends_on)), satisfied: Boolean(row.satisfied), failedNotified: JSON.parse(String(row.failed_notified)), detail: row.detail as string | null } : null;
+    },
+    saveWorkDependency(row: WorkDependencyRow): void {
+      db.prepare(`INSERT INTO work_dependencies (item_id, depends_on, satisfied, failed_notified, detail) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(item_id) DO UPDATE SET depends_on=excluded.depends_on, satisfied=excluded.satisfied, failed_notified=excluded.failed_notified, detail=excluded.detail`)
+        .run(row.itemId, JSON.stringify(row.dependsOn), Number(row.satisfied), JSON.stringify(row.failedNotified), row.detail);
+    },
+    clearWorkDependency(itemId: string): void {
+      db.prepare("DELETE FROM work_dependencies WHERE item_id = ?").run(itemId);
+    },
     getWork(id: string): WorkItemRow | null {
       const row = db.prepare("SELECT * FROM work_items WHERE id = ?").get(id) as Raw | undefined;
       return row ? toWork(row) : null;
@@ -1519,6 +1554,7 @@ export function createStore(db: Database, now: () => number = Date.now) {
         for (const table of ["member_bindings", "member_pending_spawns", "member_ops", "member_needs", "member_env", "member_state", "handovers"]) {
           run(table, `DELETE FROM ${table} WHERE member_id IN (${memberIds})`, crewId);
         }
+        run("work_dependencies", "DELETE FROM work_dependencies WHERE item_id IN (SELECT id FROM work_items WHERE crew_id = ?)", crewId);
         run("work_transitions", "DELETE FROM work_transitions WHERE item_id IN (SELECT id FROM work_items WHERE crew_id = ?)", crewId);
         for (const table of ["work_items", "channel_messages", "escalations", "crew_dependencies", "merge_requests", "snapshots", "graph_runs", "links", "crew_files", "members"]) {
           run(table, `DELETE FROM ${table} WHERE crew_id = ?`, crewId);

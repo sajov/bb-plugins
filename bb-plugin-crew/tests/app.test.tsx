@@ -441,7 +441,7 @@ describe("Crews zoom canvas (BBP-83)", () => {
         getActivity: () => ({ members: [view({ key: "dev-impl", context: 0.42, openWork: 2, held: 1 })] }),
         listWork: () => ({
           items: [
-            { id: "wi_9", title: "Fix the zoom", body: "", owner: "dev-impl@trio", state: "claimed", tier: "p1", dueAt: null, taskKey: null, closureNote: null, rung: 0 },
+            { id: "wi_9", blockedBy: ["wi_before"], title: "Fix the zoom", body: "", owner: "dev-impl@trio", state: "claimed", tier: "p1", dueAt: null, taskKey: null, closureNote: null, rung: 0 },
             { id: "wi_8", title: "Someone else's", body: "", owner: "dev-review@trio", state: "claimed", tier: "p1", dueAt: null, taskKey: null, closureNote: null, rung: 0 },
           ],
         }),
@@ -467,6 +467,7 @@ describe("Crews zoom canvas (BBP-83)", () => {
     expect(agent.textContent).toContain("opus");
     expect(agent.textContent).toContain("42%");
     expect(agent.textContent).toContain("Fix the zoom");
+    expect(agent.textContent).toContain("blocked by wi_before");
     // negative: another member's work item is not this agent's
     expect(agent.textContent).not.toContain("Someone else's");
     fireEvent.click(within(agent).getByRole("button", { name: "Handover" }));
@@ -537,7 +538,7 @@ describe("Crews zoom canvas (BBP-83)", () => {
       rpc: backend({
         listWork: () => ({
           items: [
-            { id: "wi_1", title: "Docs", body: "", owner: "dev-impl@trio", state: "open", tier: "p0", dueAt: null, taskKey: null, closureNote: null, rung: 4 },
+            { id: "wi_1", blockedBy: ["wi_before"], title: "Docs", body: "", owner: "dev-impl@trio", state: "open", tier: "p0", dueAt: null, taskKey: null, closureNote: null, rung: 4 },
             { id: "wi_2", title: "Fresh", body: "", owner: null, state: "open", tier: "p2", dueAt: null, taskKey: null, closureNote: null, rung: 0 },
           ],
         }),
@@ -551,6 +552,8 @@ describe("Crews zoom canvas (BBP-83)", () => {
     await openCrew(slot);
     await slot.findByText("Parser half done");
     expect(slot.getByText("follow-up 4/4")).toBeTruthy();
+    expect(slot.getByText("blocked by wi_before")).toBeTruthy();
+    expect(slot.container.querySelector('[data-rung="0"]')!.textContent).not.toContain("blocked by");
     expect(slot.container.querySelector('[data-rung="4"]')).not.toBeNull();
     expect(slot.container.querySelector('[data-rung="0"]')!.textContent).not.toContain("follow-up");
     fireEvent.change(slot.getByLabelText("Channel post"), { target: { value: "@dev-impl ping" } });

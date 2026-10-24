@@ -260,3 +260,5 @@ npx tsc --noEmit
 npx vitest run
 bb plugin build && bb plugin reload crew
 ```
+
+Work items can wait for other items in the same crew: `work create ... --waits-for wi_a,wi_b` (agent: `waits_for`). The human or lead can auditably update them with `work wait <id> --on wi_a,wi_b` or `--clear`. All prerequisites must be done; blocked claims are allowed with a warning. Readiness is announced once per declaration, so restoring an item from a snapshot does not announce it again; dependencies already done at creation do not send a readiness notice.

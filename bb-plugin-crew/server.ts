@@ -129,6 +129,9 @@ const workSchema = z.object({
   dueAt: z.number().nullable(),
   taskKey: z.string().nullable(),
   closureNote: z.string().nullable(),
+  waitsFor: z.array(z.string()).optional(),
+  blockedBy: z.array(z.string()).optional(),
+  dependencyDetail: z.string().nullable().optional(),
   rung: z.number(),
 });
 const mergeSchema = z.object({
@@ -982,6 +985,9 @@ export default async function plugin(bb: BbPluginApi) {
           tier: item.tier,
           dueAt: item.dueAt,
           taskKey: item.taskKey,
+          waitsFor: item.waitsFor,
+          blockedBy: item.blockedBy,
+          dependencyDetail: item.dependencyDetail,
           closureNote: item.closureNote,
           rung: store.highestRung("work", `${item.id}#${item.epoch}`),
         })),

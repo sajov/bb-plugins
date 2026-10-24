@@ -6,6 +6,7 @@
 // (item epoch, rung), so a rung fires exactly once however often the sweep
 // runs — the sweep is idempotent and safe to call every minute or twice.
 import { randomBytes } from "node:crypto";
+import { createWorkDependencies } from "./work-dependencies";
 import { AddressError, type Delivery, type Sender } from "./delivery";
 import type { Integration } from "./integration";
 import type { CrewModels } from "./policy";
@@ -53,6 +54,7 @@ export function dueRung(item: WorkItemRow, periodMs: number, lastRung: number, n
 
 export function createQueue(deps: QueueDeps) {
   const { store, models, delivery, integration } = deps;
+  const waits = createWorkDependencies(store, delivery);
   const now = deps.now ?? Date.now;
   const newId = deps.newId ?? (() => `wi_${randomBytes(4).toString("hex")}`);
 
@@ -115,24 +117,40 @@ export function createQueue(deps: QueueDeps) {
     create(
       crew: CrewRow,
       actor: Actor,
-      input: { title: string; body?: string; owner?: string | null; tier?: Tier; dueAt?: number | null; taskKey?: string | null },
+      input: { title: string; body?: string; owner?: string | null; tier?: Tier; dueAt?: number | null; taskKey?: string | null; waitsFor?: string[] },
     ): WorkItemRow {
       const title = input.title.trim();
       if (!title) throw new AddressError("A work item needs a title.");
       const tier = input.tier ?? "p2";
       if (!TIERS.includes(tier)) throw new AddressError(`tier must be one of ${TIERS.join(", ")}.`);
       const owner = input.owner ? memberByKey(crew, input.owner) : null;
-      return store.insertWork({
-        id: newId(),
-        crewId: crew.id,
-        title: title.slice(0, 200),
-        body: (input.body ?? "").slice(0, 20_000),
-        ownerMember: owner?.id ?? null,
-        createdBy: actorName(actor),
-        tier,
-        dueAt: input.dueAt ?? null,
-        taskKey: input.taskKey ?? null,
+      return store.atomically(() => {
+        const item = store.insertWork({
+          id: newId(),
+          crewId: crew.id,
+          title: title.slice(0, 200),
+          body: (input.body ?? "").slice(0, 20_000),
+          ownerMember: owner?.id ?? null,
+          createdBy: actorName(actor),
+          tier,
+          dueAt: input.dueAt ?? null,
+          taskKey: input.taskKey ?? null,
+        });
+        if (input.waitsFor?.length) waits.declare(item, input.waitsFor, actorName(actor), true);
+        waits.poll(crew);
+        return waits.view(item);
       });
+    },
+
+    pollDependencies: waits.poll,
+
+    wait(crew: CrewRow, actor: Actor, id: string, ids: string[]): WorkItemRow {
+      const item = requireItem(crew, id);
+      requireOpen(item);
+      if (actor.kind === "member" && (!actor.member.lead || actor.member.crewId !== crew.id)) throw new AddressError("Only the human or crew lead can declare work dependencies.");
+      waits.declare(item, ids, actorName(actor));
+      waits.poll(crew);
+      return waits.view(item);
     },
 
     /** Claim for oneself; the human may claim on behalf of a member (`as`). */
@@ -141,12 +159,14 @@ export function createQueue(deps: QueueDeps) {
       requireOpen(item);
       const owner = actor.kind === "member" ? actor.member : as ? memberByKey(crew, as) : null;
       if (!owner) throw new AddressError("The human claims on behalf of a member: pass the member.");
-      if (item.state === "claimed" && item.ownerMember === owner.id) return item;
+      if (item.state === "claimed" && item.ownerMember === owner.id) return waits.view(item);
       if (item.state === "claimed") throw new AddressError(`Work item ${id} is already claimed by someone else; ask for a handoff.`);
       if (item.ownerMember !== null && item.ownerMember !== owner.id && actor.kind === "member" && !actor.member.lead) {
         throw new AddressError(`Work item ${id} is assigned to someone else.`);
       }
-      return store.transitionWork(id, { state: "claimed", owner: owner.id }, actorName(actor), null);
+      const blockedBy = waits.view(item).blockedBy ?? [];
+      const note = blockedBy.length ? `Claimed while blocked by ${blockedBy.join(", ")}` : null;
+      return waits.view(store.transitionWork(id, { state: "claimed", owner: owner.id }, actorName(actor), note));
     },
 
     unclaim(crew: CrewRow, actor: Actor, id: string): WorkItemRow {
@@ -188,11 +208,15 @@ export function createQueue(deps: QueueDeps) {
       requireOpen(item);
       requireOwnerOrLead(item, actor);
       if (actor.kind !== "member") {
-        return store.transitionWork(id, { state: "done", closureNote: note || null }, actorName(actor), note || null);
+        const closed = store.transitionWork(id, { state: "done", closureNote: note || null }, actorName(actor), note || null);
+        waits.poll(crew);
+        return closed;
       }
       const gate = doneGate(crew, actor.member);
       if (gate.length === 0) {
-        return store.transitionWork(id, { state: "done", closureNote: note || null }, actorName(actor), note || null);
+        const closed = store.transitionWork(id, { state: "done", closureNote: note || null }, actorName(actor), note || null);
+        waits.poll(crew);
+        return closed;
       }
       const outcome = await integration.runDoneGate(actor.member, gate);
       if (!outcome.ok) {
@@ -204,12 +228,14 @@ export function createQueue(deps: QueueDeps) {
       }
       const summary = `Gate green: ${outcome.steps.map((step) => `${step.command} (exit ${step.code}, ${step.durationMs}ms)`).join(", ")}`;
       postGateRun(crew, actorName(actor), summary);
-      return store.transitionWork(
+      const closed = store.transitionWork(
         id,
         { state: "done", closureNote: note || null },
         actorName(actor),
         [note, `Gate green: ${outcome.steps.map((step) => step.command).join(", ")}`].filter(Boolean).join("\n"),
       );
+      waits.poll(crew);
+      return closed;
     },
 
     fail(crew: CrewRow, actor: Actor, id: string, reason: string): WorkItemRow {
@@ -217,12 +243,14 @@ export function createQueue(deps: QueueDeps) {
       requireOpen(item);
       requireOwnerOrLead(item, actor);
       if (!reason.trim()) throw new AddressError("fail needs a reason.");
-      return store.transitionWork(id, { state: "failed", closureNote: reason }, actorName(actor), reason);
+      const failed = store.transitionWork(id, { state: "failed", closureNote: reason }, actorName(actor), reason);
+      waits.poll(crew);
+      return failed;
     },
 
     list(crew: CrewRow, filter: { all?: boolean; owner?: string } = {}): WorkItemRow[] {
       const owner = filter.owner ? memberByKey(crew, filter.owner).id : undefined;
-      return store.listWork({ crewId: crew.id, states: filter.all ? undefined : OPEN_STATES, owner });
+      return store.listWork({ crewId: crew.id, states: filter.all ? undefined : OPEN_STATES, owner }).map(waits.view);
     },
 
     /**
@@ -291,7 +319,7 @@ export function createQueue(deps: QueueDeps) {
 export function formatWorkItem(item: WorkItemRow, ownerAddress: (id: string | null) => string): string {
   return `${item.id} [${item.state}] ${item.tier} "${item.title}" owner ${ownerAddress(item.ownerMember)}${item.dueAt ? ` due ${new Date(item.dueAt).toISOString().slice(0, 16)}Z` : ""}${
     item.taskKey ? ` task ${item.taskKey}` : ""
-  }${item.closureNote ? ` — ${item.closureNote}` : ""}`;
+  }${item.closureNote ? ` — ${item.closureNote}` : ""}${item.blockedBy?.length ? ` — ${item.state === "claimed" ? "Warning: " : ""}blocked by ${item.blockedBy.join(", ")}` : ""}${item.dependencyDetail ? ` — dependency notice: ${item.dependencyDetail}` : ""}`;
 }
 
 /** Short rules for queue, channel and delivery; part of the configure instruction and the kickoff brief. */

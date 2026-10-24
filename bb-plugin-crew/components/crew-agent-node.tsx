@@ -63,6 +63,7 @@ export function AgentNodeView({ data }: NodeProps<Node<AgentNodeData>>) {
           {view ? `${view.openWork} open · ${view.held} held` : "—"}
         </Row>
         <Row label="Work">{work ? work.title : "none"}</Row>
+        {work?.blockedBy?.length ? <div className="truncate text-warning-text" title={`blocked by ${work.blockedBy.join(", ")}`}>blocked by {work.blockedBy.join(", ")}</div> : null}
       </div>
       <div className="mt-auto flex items-center gap-1.5">
         <Button size="sm" variant="outline" className="h-7 px-2" onClick={act("open")}>

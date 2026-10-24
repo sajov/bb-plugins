@@ -52,7 +52,7 @@ export const CLI_COMMANDS = [
     name: "work",
     summary: "The crew's work queue",
     usage:
-      "bb crew work list|create|claim|unclaim|handoff|done|fail … --crew <crew>  (create <title…> [--owner <m>] [--tier p0-p3] [--due <iso>] [--body <b>] [--task <KEY>]; claim <id> --as <m>; handoff <id> <to> [note…]; done <id> [note…]; fail <id> <reason…>; list [--all])",
+      "bb crew work list|create|wait|claim|unclaim|handoff|done|fail … --crew <crew>  (create <title…> [--owner <m>] [--tier p0-p3] [--due <iso>] [--body <b>] [--task <KEY>] [--waits-for <id,id>]; wait <id> --on <id,id>|--clear; claim <id> --as <m>; handoff <id> <to> [note…]; done <id> [note…]; fail <id> <reason…>; list [--all] [--json])",
   },
   { name: "merges", summary: "Merge requests of the project", usage: "bb crew merges [--all]" },
   { name: "approve", summary: "Merge a merge request into main", usage: "bb crew approve <mr>" },
@@ -120,6 +120,8 @@ const VALUE_OPTIONS = new Set([
   "--due",
   "--body",
   "--task",
+  "--waits-for",
+  "--on",
   "--as",
   "--label",
   "--mode",
@@ -195,6 +197,12 @@ export async function runCli(
     stdout: `${bound(Array.isArray(lines) ? lines.join("\n") : lines)}\n`,
   });
   const fail = (text: string) => ({ exitCode: 1, stderr: `${bound(text)}\n` });
+  const okJson = (value: unknown) => {
+    const text = JSON.stringify(value);
+    // Never truncate a JSON document into invalid output.
+    if (text.length > OUTPUT_LIMIT) return fail(`The JSON is ${text.length} characters, over the ${OUTPUT_LIMIT} a command may print; narrow it (--owner, without --all).`);
+    return { exitCode: 0, stdout: `${text}\n` };
+  };
   const args = parseArgs(argv);
   const [command, target] = args.positional;
 
@@ -270,6 +278,13 @@ export async function runCli(
           case undefined:
           case "list": {
             const items = service.queue.list(crew, { all: args.flags.has("--all"), owner: args.values.owner });
+            if (args.flags.has("--json")) return okJson(items.map((item) => ({
+              id: item.id, crew: crew.name, title: item.title, state: item.state, tier: item.tier,
+              owner: item.ownerMember ? addressOf(item.ownerMember) : null, taskKey: item.taskKey,
+              dueAt: item.dueAt ? new Date(item.dueAt).toISOString() : null,
+              waitsFor: item.waitsFor, blockedBy: item.blockedBy, dependencyDetail: item.dependencyDetail,
+              closureNote: item.closureNote, stateSince: new Date(item.stateSince).toISOString(), updatedAt: new Date(item.updatedAt).toISOString(),
+            })));
             return ok(items.length ? items.map((item) => formatWorkItem(item, addressOf)) : "No work items.");
           }
           case "create": {
@@ -284,8 +299,18 @@ export async function runCli(
                 tier: tier as Tier | undefined,
                 dueAt: time(args.values.due) ?? null,
                 taskKey: args.values.task ?? null,
+                waitsFor: args.values["waits-for"]?.split(",").map((id) => id.trim()),
               }),
             );
+          }
+          case "wait": {
+            const on = args.values.on;
+            const clear = args.flags.has("--clear");
+            if (!id || (!!on === clear)) return fail("Usage: bb crew work wait <id> --on <id,id> | --clear");
+            const self = ctx.threadId ? service.memberOfThread(ctx.threadId) : null;
+            const result = service.queue.wait(crew, self ? { kind: "member", member: self.member } : human, id, clear ? [] : on!.split(",").map((id) => id.trim()));
+            await service.flush();
+            return line(result);
           }
           case "claim":
             if (!id) return fail("Usage: bb crew work claim <id> --as <member>");

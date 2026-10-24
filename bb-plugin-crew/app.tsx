@@ -743,6 +743,8 @@ export function WorkSection({ crew }: { crew: CrewDto }) {
             <li key={item.id} data-rung={item.rung} className={cn(item.rung >= 4 && "text-destructive-text")}>
               <span className="font-mono text-xs text-muted-foreground">{item.id}</span> [{item.state}] {item.tier} {item.title} ·{" "}
               <span className="font-mono text-xs">{item.owner ?? "unassigned"}</span>
+              {item.blockedBy?.length ? <span className="ml-1 text-xs text-warning-text">blocked by {item.blockedBy.join(", ")}</span> : null}
+              {item.dependencyDetail ? <span className="ml-1 text-xs text-warning-text">{item.dependencyDetail}</span> : null}
               {item.rung > 0 ? <span className="ml-1 text-xs text-warning-text">follow-up {item.rung}/4</span> : null}
             </li>
           ))}

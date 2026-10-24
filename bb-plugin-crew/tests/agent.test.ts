@@ -482,3 +482,16 @@ describe("crew_graph_run (BBP-30)", () => {
     expect(text(result)).toMatch(/vanished/);
   });
 });
+
+
+it("crew_work_create accepts waits_for and rejects a missing prerequisite", async () => {
+  const e = await withHost();
+  const prerequisite = e.service.queue.create(e.crew, { kind: "human" }, { title: "Prerequisite" });
+  const call = (waits_for: string[]) => e.harness.behavior.callAgentTool("crew_work_create", { title: "Dependent", waits_for }, { threadId: e.threads["orch-lead"]! });
+  const created = await call([prerequisite.id]);
+  expect(isError(created)).toBe(false);
+  expect(text(created)).toContain(`blocked by ${prerequisite.id}`);
+  const bad = await call(["wi_missing"]);
+  expect(isError(bad)).toBe(true);
+  expect(text(bad)).toContain("same crew");
+});

@@ -327,7 +327,7 @@ export function createCrewService(deps: ServiceDeps) {
     },
     /** One dependency poll (schedule: every minute). */
     async pollDependencies() {
-      const count = await dependencies.poll();
+      const count = (await dependencies.poll()) + queue.pollDependencies();
       if (count > 0) await flush();
       return count;
     },

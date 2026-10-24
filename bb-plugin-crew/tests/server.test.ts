@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createFakePluginHost } from "@get-bb/plugin-sdk/testing";
 import { GRAPH_TOOL_NAME, INTEGRATOR_TOOL_NAMES, LEAD_ADMIN_TOOL_NAMES, LEAD_TOOL_NAMES, TOOL_NAMES, WORK_TOOL_NAMES } from "../lib/agent";
 import plugin from "../server";
+import { createStore } from "../lib/store";
+import { duoYaml } from "./helpers";
 
 describe("server wiring", () => {
   it("registers the crew CLI and the RPC methods, migrates the DB", async () => {
@@ -133,4 +135,23 @@ describe("server wiring — teardown (BBP-260)", () => {
     }
     expect(errors.map((error) => (error as Error).name)).toEqual([]);
   });
+});
+
+
+it("listWork RPC exposes blocked prerequisites and an empty list for independent work", async () => {
+  const { bb, harness } = createFakePluginHost({ pluginId: "crew" });
+  await plugin(bb);
+  try {
+    const store = createStore(bb.storage.database());
+    const { crew } = store.saveCrewFile("p1", "duo", duoYaml());
+    const insert = (id: string) => store.insertWork({ id, crewId: crew.id, title: id, body: "", ownerMember: null, createdBy: "human", tier: "p2", dueAt: null, taskKey: null });
+    insert("wi_before");
+    insert("wi_after");
+    store.saveWorkDependency({ itemId: "wi_after", dependsOn: ["wi_before"], satisfied: false, failedNotified: [], detail: null });
+    const result = await harness.behavior.callRpc("listWork", { projectId: "p1", name: "duo" }) as { items: { id: string; blockedBy: string[]; waitsFor: string[] }[] };
+    expect(result.items.find((item) => item.id === "wi_after")).toMatchObject({ blockedBy: ["wi_before"], waitsFor: ["wi_before"] });
+    expect(result.items.find((item) => item.id === "wi_before")?.blockedBy).toEqual([]);
+  } finally {
+    await harness.lifecycle.dispose();
+  }
 });

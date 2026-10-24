@@ -351,13 +351,14 @@ export function registerAgentTools(bb: BbPluginApi, service: CrewService, option
       tier: z.enum(TIERS).optional(),
       due: z.string().max(40).optional(),
       task: z.string().max(40).optional().describe("BB task key this item refers to"),
+      waits_for: z.array(z.string().min(1).max(128)).optional().describe("Work item ids in this crew that must all be done"),
     }),
     presentation: { label: { pending: "Creating work item", completed: "Created work item" }, icon: { glyph: "ListPlus" } },
     execute: (params, ctx) =>
       withSelf(async (self) => {
         const dueAt = params.due ? Date.parse(params.due) : null;
         if (params.due && !Number.isFinite(dueAt)) return failure(`"${params.due}" is not a time.`);
-        const item = work.create(self.crew, actor(self), { title: params.title, body: params.body, owner: params.owner ?? null, tier: params.tier, dueAt, taskKey: params.task ?? null });
+        const item = work.create(self.crew, actor(self), { title: params.title, body: params.body, owner: params.owner ?? null, tier: params.tier, dueAt, taskKey: params.task ?? null, waitsFor: params.waits_for });
         if (item.ownerMember && item.ownerMember !== self.member.id) {
           await work.beforeAssign(self.crew, item.ownerMember);
           await service.send({
