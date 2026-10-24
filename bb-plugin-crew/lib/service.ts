@@ -16,6 +16,7 @@ import { createIntegration, createLocalGit, type GitBackend, type RemoteGitFacto
 import { createJournal } from "./journal";
 import { createCrewModels } from "./policy";
 import { createQueue } from "./queue";
+import { createTurnFailureReporter } from "./turn-failures";
 import { serializeCrew, validateCrew, type Catalog, type GraphsCatalog, type Problem, type SkillsCatalog, type Validation } from "./spec";
 import type { CrewRow, MemberRow, MessageFilter, MessageRow, Store } from "./store";
 import {
@@ -254,6 +255,7 @@ export function createCrewService(deps: ServiceDeps) {
     models,
     contract,
     delivery,
+    turnFailed: createTurnFailureReporter({ store, delivery }),
     activity,
     queue,
     channel,

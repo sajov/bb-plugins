@@ -1191,6 +1191,10 @@ export function createStore(db: Database, now: () => number = Date.now) {
         : db.prepare("SELECT * FROM crew_dependencies ORDER BY rowid").all();
       return (rows as Raw[]).map(toDependency);
     },
+    /** Run `fn` in one transaction: its writes commit together or not at all. Nested calls join the outer one. */
+    atomically<T>(fn: () => T): T {
+      return db.transaction(fn)();
+    },
     /** True only for the call that flipped the row: the wake message hangs on this. */
     satisfyDependency(crewId: string, taskKey: string, until: string, detail: string): boolean {
       const result = db

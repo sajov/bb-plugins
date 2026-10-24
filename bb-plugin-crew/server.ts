@@ -738,6 +738,18 @@ export default async function plugin(bb: BbPluginApi) {
       poke();
     });
   }
+  bb.events.on("turn.failed", async (event) => {
+    try {
+      await service.turnFailed(event);
+      if (!store.memberByThread(event.threadId)) return;
+      touched.add(event.threadId);
+      poke();
+      messagesChanged();
+    } catch (error) {
+      // Storage may itself be unavailable, so the host log is the final fallback for this observer.
+      bb.log.warn(`member failure notification failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
   bb.events.on("message.dispatched", ({ entry }) => {
     if (store.memberByThread(entry.threadId)) poke();
   });
