@@ -1,10 +1,5 @@
 # Slim Nav
 
-> **Deprecated.** Slim Nav is no longer maintained. Current BB versions no
-> longer provide the experimental sidebar navigation slot it relies on
-> (`slots.experimental_sidebarNavigation is not a function`), so it fails to
-> register. Uninstall it with `bb plugin uninstall slim-nav`.
-
 A BB plugin that turns the main sidebar navigation into icon-only buttons, so
 the thread list gets more vertical room.
 

@@ -53,7 +53,7 @@ export default definePluginApp((app) => {
     id: "slim-nav-tooltips",
     mount() {
       const owned = new Map<HTMLElement, string>();
-      const selector = `.${WRAPPER_CLASS} [data-sidebar-navigation-item] > button, .${WRAPPER_CLASS} [data-testid="sidebar-navigation-more-row"] > button`;
+      const selector = `.${WRAPPER_CLASS} [data-sidebar-navigation-item] > button, .${WRAPPER_CLASS} [data-testid="sidebar-navigation-list"] > button`;
 
       const sync = () => {
         for (const [button, title] of owned) {

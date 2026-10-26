@@ -9,25 +9,48 @@
   --slim-nav-gap: 4px;
 }
 
-.slim-nav
-  [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode]) {
+/* BB's "Top list" navigation: sidebar-navigation-list holds a scroll box
+   (sidebar-navigation-destinations) with the items, then the "More" button
+   as a direct child. Flatten both into one wrapping row of icons. */
+.slim-nav [data-testid="sidebar-navigation-list"] {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--slim-nav-gap);
   padding: 6px 8px 2px;
 }
 
-.slim-nav
-  [data-testid="plugin-nav-sidebar-items"]:not([data-sidebar-navigation-customize-mode])
-  > :is([data-sidebar-navigation-item], [data-testid="sidebar-navigation-more-row"]) {
+.slim-nav [data-testid="sidebar-navigation-list"] > *,
+.slim-nav [data-testid="sidebar-navigation-destinations"] > * {
+  margin: 0 !important;
+}
+
+.slim-nav [data-testid="sidebar-navigation-list"] > div:has(> [data-testid="sidebar-navigation-destinations"]) {
+  display: contents;
+}
+
+.slim-nav [data-testid="sidebar-navigation-destinations"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--slim-nav-gap);
+  max-height: none;
+  overflow: visible;
+}
+
+/* The scroll fades only make sense for the vertical list. */
+.slim-nav [data-testid="sidebar-navigation-list"] [data-overflow-fade] {
+  display: none;
+}
+
+.slim-nav [data-sidebar-navigation-item],
+.slim-nav [data-testid="sidebar-navigation-list"] > button {
   width: var(--slim-nav-size);
   height: var(--slim-nav-size);
   flex: 0 0 var(--slim-nav-size);
-  margin: 0;
 }
 
 .slim-nav [data-sidebar-navigation-item] > button,
-.slim-nav [data-testid="sidebar-navigation-more-row"] > button {
+.slim-nav [data-testid="sidebar-navigation-list"] > button {
   width: var(--slim-nav-size);
   height: var(--slim-nav-size);
   min-height: var(--slim-nav-size);
@@ -47,7 +70,7 @@
   [data-sidebar-navigation-item]
   > button
   > :is(span, div):not([data-plugin-icon-asset]):not(:has(> svg)),
-.slim-nav [data-testid="sidebar-navigation-more-row"] > button > span:not(:has(> svg)) {
+.slim-nav [data-testid="sidebar-navigation-list"] > button > span:not(:has(> svg)) {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -62,9 +85,9 @@
 .slim-nav [data-sidebar-navigation-item] > button > svg,
 .slim-nav [data-sidebar-navigation-item] > button > [data-plugin-icon-asset],
 .slim-nav [data-sidebar-navigation-item] > button > span:has(> svg),
-.slim-nav [data-testid="sidebar-navigation-more-row"] > button > svg,
-.slim-nav [data-testid="sidebar-navigation-more-row"] > button > [data-plugin-icon-asset],
-.slim-nav [data-testid="sidebar-navigation-more-row"] > button > span:has(> svg) {
+.slim-nav [data-testid="sidebar-navigation-list"] > button > svg,
+.slim-nav [data-testid="sidebar-navigation-list"] > button > [data-plugin-icon-asset],
+.slim-nav [data-testid="sidebar-navigation-list"] > button > span:has(> svg) {
   width: var(--slim-nav-icon);
   height: var(--slim-nav-icon);
 }
@@ -79,8 +102,9 @@
   background: var(--sidebar-accent);
 }
 
-[data-testid="sidebar-navigation-region"]:has(.slim-nav[data-slim-nav-hide-divider])
-  + [data-testid="app-sidebar-navigation-divider"] {
+.slim-nav[data-slim-nav-hide-divider]
+  [data-testid="sidebar-navigation-list"]
+  + div[aria-hidden="true"] {
   display: none;
 }
 
