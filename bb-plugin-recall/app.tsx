@@ -486,6 +486,7 @@ function Preview({ hit, terms, onOpen, canSidePanel, onSidePanel, notice }: {
 
 function StatusLine({ status, onReindex }: { status: RecallStatus | null; onReindex: () => void }) {
   if (!status) return <span>Index status unavailable</span>;
+  if (status.phase === "inactive") return <span>Recall is inactive · choose sources in plugin settings</span>;
   if (!status.qmdAvailable) return <span>qmd not installed · keyword search only</span>;
   if (status.phase === "error") return <span className="text-destructive">Index error: {status.error}</span>;
   if (status.phase !== "idle" && status.phase !== "starting") {

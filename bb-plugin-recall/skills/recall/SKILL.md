@@ -36,3 +36,11 @@ bb recall reindex
   the models and can take over a minute.
 - Recall uses its own qmd index (`--index recall`); the user's default qmd
   index and collections are never touched.
+
+
+Recall starts inactive until a source is explicitly selected in plugin settings.
+For Tasks only, set sourceTasks=true, sourceThreads=false, sourceArchived=false
+and leave folders empty. Saved explicit choices are retained; unset sources now
+default to false. Status phase inactive means choose sources, not missing qmd.
+Timers and reindex cannot enable a source. Disabling sources hides their cached
+results; with all sources off existing disk data is retained, not securely erased.

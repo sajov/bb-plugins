@@ -56,7 +56,7 @@ const hitSchema = z.object({
 
 const statusSchema = z.object({
   qmdAvailable: z.boolean(),
-  phase: z.enum(["starting", "idle", "mirroring", "indexing", "embedding", "error"]),
+  phase: z.enum(["starting", "inactive", "idle", "mirroring", "indexing", "embedding", "error"]),
   documents: z.number(),
   lastIndexedAt: z.number().nullable(),
   progress: z.object({ done: z.number(), total: z.number() }).nullable(),
@@ -131,9 +131,11 @@ const taskListSchema = z.object({
 });
 
 function sleep(ms: number, signal: AbortSignal, wake: { fire?: () => void }): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const done = () => {
       clearTimeout(timer);
+      signal.removeEventListener("abort", done);
       wake.fire = undefined;
       resolve();
     };
@@ -149,18 +151,18 @@ export default function plugin(bb: BbPluginApi) {
       type: "boolean",
       label: "Index threads",
       description: "User and assistant messages of every thread. Tool output is never indexed.",
-      default: true,
+      default: false,
     },
     sourceArchived: {
       type: "boolean",
       label: "Include archived threads",
-      default: true,
+      default: false,
     },
     sourceTasks: {
       type: "boolean",
       label: "Index BB tasks",
       description: "Title, status and description of every task in the Tasks plugin.",
-      default: true,
+      default: false,
     },
     folders: {
       type: "string",
@@ -202,11 +204,12 @@ export default function plugin(bb: BbPluginApi) {
   const wake: { fire?: () => void } = {};
   let catalog: Catalog = buildCatalog(new Map(), new Map(), []);
   let threadInfo = new Map<string, ThreadInfo>();
+  let activeThreadIds = new Set<string>();
   let taskInfo = new Map<string, TaskInfo>();
   let config = {
-    threads: true,
-    archived: true,
-    tasks: true,
+    threads: false,
+    archived: false,
+    tasks: false,
     folders: [] as FolderSource[],
     intervalMs: 60_000,
   };
@@ -260,8 +263,10 @@ export default function plugin(bb: BbPluginApi) {
   const sources: IndexSources = {
     async listThreads(signal) {
       const summaries: ThreadSummary[] = [];
+      const activeIds = new Set<string>();
       if (!config.threads) {
         threadInfo = new Map();
+        activeThreadIds.clear();
         return summaries;
       }
       const names = await projectNames(signal);
@@ -270,6 +275,7 @@ export default function plugin(bb: BbPluginApi) {
           const page = await bb.sdk.threads.list({ archived, includeHidden: false, limit: 200, offset, signal });
           for (const thread of page) {
             if (thread.deletedAt !== null) continue;
+            if (!archived) activeIds.add(thread.id);
             summaries.push({
               id: thread.id,
               projectId: thread.projectId,
@@ -280,6 +286,8 @@ export default function plugin(bb: BbPluginApi) {
           if (page.length < 200) break;
         }
       }
+      // Keep the last completed classification if a later listing fails.
+      activeThreadIds = activeIds;
       threadInfo = new Map(
         summaries.map((thread) => [
           thread.id,
@@ -358,8 +366,31 @@ export default function plugin(bb: BbPluginApi) {
     }
   }
 
+  function hasSources(): boolean {
+    return config.threads || config.tasks || config.folders.length > 0;
+  }
+
+  function pauseWithoutSources(): boolean {
+    if (hasSources()) return false;
+    threadInfo.clear();
+    activeThreadIds.clear();
+    taskInfo.clear();
+    catalog = buildCatalog(threadInfo, taskInfo, []);
+    setStatus({ phase: "inactive", documents: 0, counts: { threads: 0, tasks: 0, files: 0 }, folders: [], lastIndexedAt: null, progress: null, error: null });
+    return true;
+  }
+
+  let environmentChecked = false;
   async function indexOnce(signal: AbortSignal) {
     await loadConfig();
+    // No source means no mirror, filesystem scan, qmd probe or external corpus access.
+    if (signal.aborted || pauseWithoutSources()) return;
+    if (!environmentChecked) {
+      setStatus({ qmdAvailable: await qmd.available(), hostId: await resolveHostId() });
+      environmentChecked = true;
+    }
+    // Settings may have changed while the optional qmd/host probes were awaiting.
+    if (signal.aborted || pauseWithoutSources()) return;
     await mkdir(mirrorDir(), { recursive: true });
     const previous = (await bb.storage.kv.get<IndexState>(STATE_KEY)) ?? emptyState();
     setStatus({ phase: "mirroring", progress: null, error: null });
@@ -401,7 +432,6 @@ export default function plugin(bb: BbPluginApi) {
 
   bb.background.service("indexer", {
     async start(signal) {
-      setStatus({ qmdAvailable: await qmd.available(), hostId: await resolveHostId() });
       while (!signal.aborted) {
         try {
           await indexOnce(signal);
@@ -433,6 +463,7 @@ export default function plugin(bb: BbPluginApi) {
   async function search(input: z.infer<typeof searchInput>, signal?: AbortSignal): Promise<SearchResult> {
     const started = Date.now();
     const mode = input.mode ?? status.defaultMode;
+    if (!hasSources()) return { hits: [], mode, fallback: true, tookMs: Date.now() - started };
     const wantsThreads = !input.kinds || input.kinds.includes("thread");
     const collections = [QMD_COLLECTION, ...config.folders.map((folder) => folder.collection)];
     const [keyword, semantic] = await Promise.all([
@@ -448,7 +479,7 @@ export default function plugin(bb: BbPluginApi) {
         : Promise.resolve(null),
     ]);
     const hits = combine(keyword, semantic ?? [], input.limit * 2)
-      .filter((hit) => !input.kinds || input.kinds.includes(hit.kind))
+      .filter((hit) => sourceEnabled(hit.kind, hit.id) && (!input.kinds || input.kinds.includes(hit.kind)))
       .slice(0, input.limit);
     return { hits, mode, fallback: semantic === null, tookMs: Date.now() - started };
   }
@@ -457,7 +488,15 @@ export default function plugin(bb: BbPluginApi) {
     return content.length > MAX_GET_CHARS ? `${content.slice(0, MAX_GET_CHARS)}\n… (truncated)` : content;
   }
 
+  function sourceEnabled(kind: "thread" | "task" | "file", id: string): boolean {
+    // Unknown cached IDs cannot be assumed active when archived threads are off.
+    if (kind === "thread") return config.threads && (config.archived || activeThreadIds.has(id));
+    if (kind === "task") return config.tasks;
+    return config.folders.some((folder) => resolvePath(id).startsWith(folder.root + sep));
+  }
+
   async function getDocument(kind: "thread" | "task" | "file", id: string): Promise<string | null> {
+    if (!sourceEnabled(kind, id)) return null;
     try {
       if (kind === "file") {
         // Only files inside a configured folder may be read; the id comes from the client.
@@ -473,7 +512,7 @@ export default function plugin(bb: BbPluginApi) {
   }
 
   function reindex(): boolean {
-    if (!wake.fire) return false;
+    if (!hasSources() || !wake.fire) return false;
     wake.fire();
     return true;
   }
@@ -575,6 +614,9 @@ export default function plugin(bb: BbPluginApi) {
         reindex: cliCommand({
           summary: "Start an index pass now instead of waiting for the next minute",
           async run() {
+            if (!hasSources()) {
+              return { exitCode: 1, stderr: "Recall is inactive; choose sources in plugin settings first." };
+            }
             if (!reindex()) {
               throw new PluginCliError("an index pass is already running", {
                 code: "busy",

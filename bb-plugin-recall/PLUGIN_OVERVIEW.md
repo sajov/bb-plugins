@@ -14,8 +14,10 @@ Find earlier threads and tasks by meaning, not only by exact words.
 
 ## How it works
 
-Every minute Recall writes each changed thread (user and assistant messages,
-no tool output) and each BB task as a Markdown file into its own data folder.
+Recall starts inactive, with all sources off. Select sources in the plugin
+settings before it reads or mirrors any corpus. Once selected, every minute
+Recall writes changed threads (user and assistant messages, no tool output)
+and BB tasks from those sources as Markdown into its own data folder.
 It then has [qmd](https://github.com/tobi/qmd) index those files. A search
 combines BB's built-in keyword search with qmd's results through reciprocal
 rank fusion, so a hit found by both rises to the top. Recall keeps its own qmd

@@ -16,8 +16,10 @@ Find earlier threads and tasks by meaning, not only by exact words.
 
 ## How it works
 
-Every minute Recall writes each changed thread (user and assistant messages,
-no tool output) and each BB task as a Markdown file into its own data folder.
+Recall starts inactive, with all sources off. Select sources in the plugin
+settings before it reads or mirrors any corpus. Once selected, every minute
+Recall writes changed threads (user and assistant messages, no tool output)
+and BB tasks from those sources as Markdown into its own data folder.
 It then has [qmd](https://github.com/tobi/qmd) index those files. A search
 combines BB's built-in keyword search with qmd's results through reciprocal
 rank fusion, so a hit found by both rises to the top. Recall keeps its own qmd
@@ -35,14 +37,31 @@ Settings → Plugins → Recall, or `bb plugin config recall set <key> <value>`:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `sourceThreads` | true | Index thread messages (never tool output) |
-| `sourceArchived` | true | Include archived threads |
-| `sourceTasks` | true | Index BB tasks |
+| `sourceThreads` | false | Index thread messages (never tool output) |
+| `sourceArchived` | false | Include archived threads |
+| `sourceTasks` | false | Index BB tasks |
 | `folders` | empty | Extra Markdown folders, one absolute path per line (e.g. an Obsidian vault) |
 | `defaultMode` | smart | Mode used until you switch it in the search window |
 | `intervalSeconds` | 60 | How often changes are picked up (minimum 30) |
 
-Turning a source off removes its documents from the index on the next pass.
+For Tasks only, explicitly set `sourceTasks=true`, `sourceThreads=false`,
+`sourceArchived=false`, and leave `folders` empty. Adding a folder explicitly
+selects that folder; archived threads are included only with `sourceThreads`.
+No selected source means no mirror, folder scan or qmd probe, even on the
+first load, a timer tick, or a reindex request. Status reports `phase: inactive`.
+`bb recall reindex` exits with a source-selection message while inactive; the
+reindex RPC returns `started: false`.
+
+**Upgrading:** explicitly saved source choices keep their values. Unset fields
+now default to false instead of implicitly opting into threads, archived
+threads and Tasks. Check the source settings after upgrading if you previously
+relied on those defaults. Source changes wake the existing service loop.
+
+Disabled sources are hidden from search and retrieval. While another source
+remains active, the next pass removes disabled mirror documents as before.
+With all sources off Recall performs no corpus/index I/O; existing mirror and
+qmd data remain on disk but are not served. This is not automatic secure erasure
+or retroactive cancellation of an already-running pass.
 
 ## Measured on one machine (343 threads, 5.9 MB of text, 09.10.2026)
 
