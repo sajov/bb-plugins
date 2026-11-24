@@ -19,7 +19,7 @@ import type { rpcContract } from "@/server";
 import {
   countFamilies,
   countWaitingFamilies,
-  countWorkingFamilies,
+  countWorkingThreads,
   displayOrder,
   familyState,
   latestActivity,
@@ -322,7 +322,7 @@ export function Sidenav({
   const providerMap = useMemo(() => buildProviderMap(providers), [providers]);
   const waiting = useMemo(() => waitingThreads(threads), [threads]);
   const threadCount = useMemo(() => countFamilies(blocks), [blocks]);
-  const workingCount = useMemo(() => countWorkingFamilies(blocks), [blocks]);
+  const workingCount = useMemo(() => countWorkingThreads(blocks), [blocks]);
   const waitingCount = useMemo(() => countWaitingFamilies(blocks), [blocks]);
   const pinned = useMemo(
     () => (view.pinnedGroup ? pinnedFamilies(blocks, view.pinnedOrder) : []),

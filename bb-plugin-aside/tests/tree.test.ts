@@ -5,7 +5,7 @@ import type {
 } from "@get-bb/plugin-sdk/app";
 import {
   countFamilies,
-  countWorkingFamilies,
+  countWorkingThreads,
   displayOrder,
   latestActivity,
   moveInOrder,
@@ -327,26 +327,45 @@ describe("the number in the header", () => {
   });
 });
 
-describe("countWorkingFamilies", () => {
+describe("countWorkingThreads", () => {
 
-  it("counts families with a working member, once per family", () => {
+  it("counts every running thread, sub-threads included", () => {
     const busy = thread({ id: "a", projectId: "p1", indicator: "runtime" });
     const kid = thread({ id: "kid", projectId: "p1", parentThreadId: "a", indicator: "runtime" });
+    const grandkid = thread({
+      id: "grandkid",
+      projectId: "p1",
+      parentThreadId: "kid",
+      indicator: "runtime",
+    });
     const idle = thread({ id: "b", projectId: "p1" });
-    const blocks = groupThreads([busy, kid, idle], [project("p1")], options);
-    expect(countWorkingFamilies(blocks)).toBe(1);
+    const blocks = groupThreads([busy, kid, grandkid, idle], [project("p1")], options);
+    expect(countWorkingThreads(blocks)).toBe(3);
   });
 
-  it("counts a family whose child works while the root waits", () => {
+  it("counts running threads across projects", () => {
+    const here = thread({ id: "a", projectId: "p1", indicator: "runtime" });
+    const there = thread({ id: "b", projectId: "p2", indicator: "runtime" });
+    const blocks = groupThreads([here, there], [project("p1"), project("p2")], options);
+    expect(countWorkingThreads(blocks)).toBe(2);
+  });
+
+  it("does NOT count a root that only waits while its child works", () => {
     const root = thread({ id: "a", projectId: "p1", hasPendingInteraction: true });
     const kid = thread({ id: "kid", projectId: "p1", parentThreadId: "a", indicator: "runtime" });
     const blocks = groupThreads([root, kid], [project("p1")], options);
-    expect(countWorkingFamilies(blocks)).toBe(1);
+    expect(countWorkingThreads(blocks)).toBe(1);
   });
 
   it("is 0 when nothing runs", () => {
     const blocks = groupThreads([thread({ id: "a", projectId: "p1" })], [project("p1")], options);
-    expect(countWorkingFamilies(blocks)).toBe(0);
+    expect(countWorkingThreads(blocks)).toBe(0);
+  });
+
+  it("is 0 when a thread only waits, with nothing running anywhere", () => {
+    const waiting = thread({ id: "a", projectId: "p1", hasPendingInteraction: true });
+    const blocks = groupThreads([waiting], [project("p1")], options);
+    expect(countWorkingThreads(blocks)).toBe(0);
   });
 });
 

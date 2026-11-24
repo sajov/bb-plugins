@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
-import { RowCount, RowTail } from "@/components/sidenav/row-slots";
+import { RowCount, RowTail, WorkingCount } from "@/components/sidenav/row-slots";
 
 afterEach(cleanup);
 
@@ -89,5 +89,36 @@ describe("row tail", () => {
     expect(slots).toHaveLength(2);
     expect(slots[0].textContent).toBe("2h");
     expect(slots[1].querySelector("svg")).not.toBeNull();
+  });
+});
+
+describe("working count", () => {
+  it("reads as a fraction while fewer threads run than the list has rows", () => {
+    render(<WorkingCount working={6} waiting={0} total={58} />);
+    expect(screen.getByRole("status").textContent).toBe("6/58");
+    expect(screen.getByRole("status").getAttribute("aria-label")).toBe(
+      "6 of 58 threads processing",
+    );
+  });
+
+  // Sub-threads count one by one, so one root with three working children is
+  // four running threads in a list of one row. "4/1" would read as a bug.
+  it("drops the fraction when MORE threads run than the list has rows", () => {
+    render(<WorkingCount working={4} waiting={0} total={1} />);
+    expect(screen.getByRole("status").textContent).toBe("4");
+    expect(screen.getByRole("status").getAttribute("aria-label")).toBe(
+      "4 threads processing",
+    );
+  });
+
+  it("keeps the fraction when exactly as many threads run as there are rows", () => {
+    render(<WorkingCount working={3} waiting={0} total={3} />);
+    expect(screen.getByRole("status").textContent).toBe("3/3");
+  });
+
+  it("falls back to the plain total when nothing runs and nobody waits", () => {
+    render(<WorkingCount working={0} waiting={0} total={58} />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText("58")).toBeTruthy();
   });
 });

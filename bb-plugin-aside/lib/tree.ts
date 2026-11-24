@@ -444,17 +444,28 @@ export function countFamilies(blocks: readonly ProjectBlock[]): number {
 }
 
 /**
- * How many of those families are processing right now — the numerator beside
+ * How many threads are processing right now — the numerator beside
  * {@link countFamilies} in the header.
  *
- * A family counts when any member works, not when its rolled-up state is
- * "working": a failed or waiting sibling outranks the spinner on the card, but
- * the agent next to it is still running and still belongs in this number.
+ * Every running thread counts on its own, sub-threads included: a working root
+ * with five working children is six agents at work, and counting the family
+ * once reported "1" for all six. This deliberately differs from
+ * {@link countFamilies}, which counts rows you can scroll to — the numerator
+ * answers "how much is running", not "how many rows are busy".
+ *
+ * A thread counts when it works, not when its rolled-up state is "working": a
+ * failed or waiting sibling outranks the spinner on the card, but the agent
+ * next to it is still running. By the same rule a root that only waits while
+ * its child works does not count itself — only the child does.
  */
-export function countWorkingFamilies(blocks: readonly ProjectBlock[]): number {
+export function countWorkingThreads(blocks: readonly ProjectBlock[]): number {
   return blocks.reduce(
     (sum, block) =>
-      sum + block.families.filter((family) => familyMembers(family).some(isWorking)).length,
+      sum +
+      block.families.reduce(
+        (inFamily, family) => inFamily + familyMembers(family).filter(isWorking).length,
+        0,
+      ),
     0,
   );
 }

@@ -117,12 +117,17 @@ export function RowTail({
 }
 
 /**
- * The header's count: all families, and — while anything runs — how many of
- * them are processing, as "5/29" behind the same spinner the cards use.
+ * The header's count: all rows the list holds, and — while anything runs — how
+ * many threads are processing, as "5/29" behind the same spinner the cards use.
  *
  * The same badge as every other count rather than a second one beside it, so
  * the header still reads as one number. With nothing running it falls back to
  * the plain total; "0/29" would only be noise.
+ *
+ * `working` counts threads and `total` counts rows, so a single root with three
+ * working sub-threads would read "4/1". Above the total the fraction is dropped
+ * and the running number stands alone: it is the honest half of the pair, and
+ * "4/1" reads as a bug rather than as four busy agents.
  *
  * The spinner turns blue while any thread waits for you — the colour the
  * "needs you" mark already carries — so a glance at the header tells you
@@ -139,7 +144,9 @@ export function WorkingCount({
 }): ReactNode {
   if (working === 0 && waiting === 0) return <RowCount count={total} open />;
   const label = [
-    `${working} of ${total} threads processing`,
+    working > total
+      ? `${working} threads processing`
+      : `${working} of ${total} threads processing`,
     waiting > 0 ? `${waiting} waiting for you` : null,
   ]
     .filter(Boolean)
@@ -169,7 +176,8 @@ export function WorkingCount({
       </svg>
       {working > 0 ? (
         <span>
-          <span className="text-foreground">{working}</span>/{total}
+          <span className="text-foreground">{working}</span>
+          {working > total ? null : `/${total}`}
         </span>
       ) : (
         <span>{total}</span>
