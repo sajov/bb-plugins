@@ -6,8 +6,10 @@
 // their icon rather than by two boxes that each scroll on their own. A click
 // toggles a row; there is no checkbox, a picked row is lit and carries a ✓.
 //
-// What is typed stays when the flyout closes: it is a filter like the picked
-// rows, and the scope bar under the header names it with its own ✕.
+// Picking a row empties the field: what was typed was the way to that row, and
+// standing there it would go on narrowing the list — hiding the pick itself.
+// What is typed stays when the flyout closes through the text row: there it is
+// a filter like the picked rows, and the scope bar names it with its own ✕.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -151,8 +153,10 @@ export function SearchSlot({
   const toggle = (entry: FlyoutEntry) => {
     if (entry.kind === "project") onToggleProject(entry.id);
     else onToggleTag(entry.id);
-    // A `#` query was only there to find the tag; once picked it has done its job.
-    if (tagPrefix(query) !== null) onQuery("");
+    // The query was only there to find this row; once it is picked it has done
+    // its job. Left standing it keeps narrowing the list — and hides the very
+    // entry just picked, along with every pick that does not match it.
+    if (query.length > 0) onQuery("");
     field.current?.focus();
   };
   const pickAt = (index: number) => {
